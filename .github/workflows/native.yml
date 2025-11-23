@@ -1,0 +1,171 @@
+name: Native SIMD Addon
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'native/**'
+      - '.github/workflows/native.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'native/**'
+      - '.github/workflows/native.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux-x64
+          # macOS x86_64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            name: darwin-x64
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-14
+            target: aarch64-apple-darwin
+            name: darwin-arm64
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: win32-x64
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: 'native/pnpm-lock.yaml'
+
+      - name: Install dependencies
+        working-directory: native
+        run: pnpm install
+
+      - name: Build native addon
+        working-directory: native
+        run: pnpm build
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.target }}
+
+      - name: List build artifacts
+        working-directory: native
+        run: ls -la *.node || dir *.node
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.name }}
+          path: native/*.node
+          if-no-files-found: error
+
+  test-with-native:
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: native-linux-x64
+          - os: macos-14
+            artifact: native-darwin-arm64
+          - os: windows-latest
+            artifact: native-win32-x64
+
+    runs-on: ${{ matrix.os }}
+    name: Test with native (${{ matrix.os }})
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Download native addon
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: native/
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run tests with native addon
+        run: pnpm test
+
+      - name: Verify native addon loaded
+        run: |
+          node -e "
+            const simd = require('./src/lib/simd');
+            console.log('Native available:', simd.isNativeAvailable());
+            console.log('SIMD level:', simd.getSimdLevel());
+            if (simd.isNativeAvailable()) {
+              const result = simd.benchmark(1000);
+              console.log('Benchmark:', result);
+            }
+          "
+        shell: bash
+
+  # Rust-only checks (faster, no Node needed)
+  rust-checks:
+    runs-on: ubuntu-latest
+    name: Rust checks
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Check formatting
+        working-directory: native
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: native
+        run: cargo clippy --all-features -- -D warnings
+
+      - name: Run Rust tests
+        working-directory: native
+        run: cargo test
+
+      - name: Build with parallel feature
+        working-directory: native
+        run: cargo build --release --features parallel
