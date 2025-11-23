@@ -7,20 +7,27 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = []
+# Enable nightly features for inline assembly
+nightly = []
+
 [dependencies]
 napi = { version = "2", features = ["napi4"] }
 napi-derive = "2"
+rayon = "1.10"
 
 [build-dependencies]
 napi-build = "2"
 
 [profile.release]
-lto = true
+lto = "fat"
 codegen-units = 1
 opt-level = 3
 strip = true
 panic = "abort"
+# Enable all CPU features for maximum performance
+# Uncomment for native builds: rustflags = ["-C", "target-cpu=native"]
 
-[target.'cfg(target_arch = "x86_64")'.dependencies]
-
-[target.'cfg(target_arch = "aarch64")'.dependencies]
+[profile.release.build-override]
+opt-level = 3

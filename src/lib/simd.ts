@@ -27,12 +27,16 @@ interface NativeAddon {
   batchSigmoid(values: number[]): number[];
   argsortDesc(values: number[]): number[];
   l2Normalize(vec: Float32Array): Float32Array;
+  batchL2Normalize(vectors: Float32Array[]): Float32Array[];
+  computeDistanceMatrix(vectors: Float32Array[]): number[];
+  getSimdLevel(): string;
 }
 
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   native = require("../../native/osgrep-native.node") as NativeAddon;
-  console.log("[simd] Native SIMD addon loaded successfully");
+  const level = native.getSimdLevel();
+  console.log(`[simd] Native addon loaded: ${level}`);
 } catch {
   // Native addon not available, using JS fallback
 }
@@ -283,21 +287,75 @@ export function rrfFuse(
 }
 
 /**
+ * Get SIMD capability level
+ */
+export function getSimdLevel(): string {
+  if (native) {
+    return native.getSimdLevel();
+  }
+  return "JavaScript (no native addon)";
+}
+
+/**
+ * Batch L2 normalize - parallel for large batches
+ */
+export function batchL2Normalize(vectors: Float32Array[]): Float32Array[] {
+  if (native) {
+    return native.batchL2Normalize(vectors);
+  }
+  return vectors.map(l2Normalize);
+}
+
+/**
+ * Compute distance matrix (for clustering/reranking)
+ */
+export function computeDistanceMatrix(vectors: Float32Array[]): number[] {
+  if (native) {
+    return native.computeDistanceMatrix(vectors);
+  }
+
+  // JS fallback
+  const n = vectors.length;
+  const distances = new Array(n * n).fill(0);
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const sim = dotProduct(vectors[i], vectors[j]);
+      const dist = 1 - sim;
+      distances[i * n + j] = dist;
+      distances[j * n + i] = dist;
+    }
+  }
+
+  return distances;
+}
+
+/**
  * Benchmark helper - compare native vs JS performance
  */
 export function benchmark(iterations: number = 10000): {
   native: boolean;
+  simdLevel: string;
   dotProductMs: number;
   sigmoidMs: number;
+  batchDotProductMs: number;
+  opsPerSecond: number;
 } {
   const a = new Float32Array(384).map(() => Math.random());
   const b = new Float32Array(384).map(() => Math.random());
+
+  // Create batch for batch benchmarking
+  const batchSize = 100;
+  const batch = Array.from({ length: batchSize }, () =>
+    new Float32Array(384).map(() => Math.random()),
+  );
 
   // Warm up
   for (let i = 0; i < 100; i++) {
     dotProduct(a, b);
     fastSigmoid(Math.random() * 10 - 5);
   }
+  batchDotProduct(a, batch);
 
   // Benchmark dot product
   const dotStart = performance.now();
@@ -313,9 +371,23 @@ export function benchmark(iterations: number = 10000): {
   }
   const sigmoidMs = performance.now() - sigStart;
 
+  // Benchmark batch dot product
+  const batchIterations = Math.floor(iterations / 10);
+  const batchStart = performance.now();
+  for (let i = 0; i < batchIterations; i++) {
+    batchDotProduct(a, batch);
+  }
+  const batchDotProductMs = performance.now() - batchStart;
+
+  // Calculate ops per second
+  const opsPerSecond = Math.round((iterations / dotProductMs) * 1000);
+
   return {
     native: isNativeAvailable(),
+    simdLevel: getSimdLevel(),
     dotProductMs,
     sigmoidMs,
+    batchDotProductMs,
+    opsPerSecond,
   };
 }

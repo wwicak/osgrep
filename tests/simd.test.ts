@@ -9,6 +9,9 @@ import {
   computeRrfScores,
   fuseRrfScores,
   l2Normalize,
+  batchL2Normalize,
+  computeDistanceMatrix,
+  getSimdLevel,
   isNativeAvailable,
   benchmark,
 } from "../src/lib/simd";
@@ -164,6 +167,53 @@ describe("SIMD optimized operations", () => {
       expect(typeof result.native).toBe("boolean");
       expect(typeof result.dotProductMs).toBe("number");
       expect(typeof result.sigmoidMs).toBe("number");
+      expect(typeof result.simdLevel).toBe("string");
+      expect(typeof result.opsPerSecond).toBe("number");
+    });
+  });
+
+  describe("getSimdLevel", () => {
+    it("returns a string describing SIMD level", () => {
+      const level = getSimdLevel();
+      expect(typeof level).toBe("string");
+      expect(level.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("batchL2Normalize", () => {
+    it("normalizes multiple vectors", () => {
+      const vectors = [
+        new Float32Array([3, 4, 0, 0]),
+        new Float32Array([0, 5, 12, 0]),
+      ];
+      const normalized = batchL2Normalize(vectors);
+      expect(normalized.length).toBe(2);
+      // First vector: [3, 4, 0, 0] / 5 = [0.6, 0.8, 0, 0]
+      expect(normalized[0][0]).toBeCloseTo(0.6, 5);
+      expect(normalized[0][1]).toBeCloseTo(0.8, 5);
+      // Second vector: [0, 5, 12, 0] / 13 = [0, 0.385, 0.923, 0]
+      expect(normalized[1][1]).toBeCloseTo(5 / 13, 4);
+      expect(normalized[1][2]).toBeCloseTo(12 / 13, 4);
+    });
+  });
+
+  describe("computeDistanceMatrix", () => {
+    it("computes pairwise distances", () => {
+      // Normalized vectors for cosine distance
+      const vectors = [
+        new Float32Array([1, 0, 0, 0]),
+        new Float32Array([0, 1, 0, 0]),
+        new Float32Array([1, 0, 0, 0]), // Same as first
+      ];
+      const distances = computeDistanceMatrix(vectors);
+      // 3x3 matrix flattened
+      expect(distances.length).toBe(9);
+      // Distance between identical vectors should be 0
+      expect(distances[0 * 3 + 2]).toBeCloseTo(0, 5); // [0][2]
+      expect(distances[2 * 3 + 0]).toBeCloseTo(0, 5); // [2][0]
+      // Distance between orthogonal vectors should be 1
+      expect(distances[0 * 3 + 1]).toBeCloseTo(1, 5); // [0][1]
+      expect(distances[1 * 3 + 0]).toBeCloseTo(1, 5); // [1][0]
     });
   });
 });
