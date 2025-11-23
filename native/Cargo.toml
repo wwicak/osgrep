@@ -9,13 +9,13 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
-# Enable nightly features for inline assembly
-nightly = []
+# Enable parallel processing (adds ~200KB to binary)
+parallel = ["rayon"]
 
 [dependencies]
 napi = { version = "2", features = ["napi4"] }
 napi-derive = "2"
-rayon = "1.10"
+rayon = { version = "1.10", optional = true }
 
 [build-dependencies]
 napi-build = "2"
@@ -26,8 +26,3 @@ codegen-units = 1
 opt-level = 3
 strip = true
 panic = "abort"
-# Enable all CPU features for maximum performance
-# Uncomment for native builds: rustflags = ["-C", "target-cpu=native"]
-
-[profile.release.build-override]
-opt-level = 3
