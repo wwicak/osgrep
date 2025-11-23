@@ -377,11 +377,11 @@ export async function initialSync(
 
   // 2. Walk file system and apply the VELVET ROPE filter
   const fileWalkStart = PROFILE_ENABLED ? now() : null;
-  
+
   // Files on disk that are not gitignored.
   const allFiles = Array.from(fileSystem.getFiles(repoRoot));
   const aliveFiles = allFiles.filter(
-    (filePath) => !fileSystem.isIgnored(filePath, repoRoot)
+    (filePath) => !fileSystem.isIgnored(filePath, repoRoot),
   );
 
   if (PROFILE_ENABLED && fileWalkStart && profile) {
@@ -522,7 +522,7 @@ export async function initialSync(
 
     // Case 1: Getting too hot (Memory spike or very slow processing)
     if (memUsageMB > 1500) {
-    // If RSS > 1.5GB, clamp down hard and sleep
+      // If RSS > 1.5GB, clamp down hard and sleep
       currentConcurrency = Math.max(MIN_CONCURRENCY, currentConcurrency - 2);
       // Force a pause to let GC run/system breathe
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -632,11 +632,7 @@ export async function readServerLock(
   try {
     const content = await fs.promises.readFile(lockPath, "utf-8");
     const data = JSON.parse(content);
-    if (
-      data &&
-      typeof data.port === "number" &&
-      typeof data.pid === "number"
-    ) {
+    if (data && typeof data.port === "number" && typeof data.pid === "number") {
       return { port: data.port, pid: data.pid };
     }
   } catch (_err) {
@@ -645,9 +641,7 @@ export async function readServerLock(
   return null;
 }
 
-export async function clearServerLock(
-  cwd = process.cwd(),
-): Promise<void> {
+export async function clearServerLock(cwd = process.cwd()): Promise<void> {
   const lockPath = getServerLockPath(cwd);
   try {
     await fs.promises.unlink(lockPath);

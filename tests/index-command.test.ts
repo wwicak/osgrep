@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/lib/context", () => {
   return {
@@ -54,9 +54,9 @@ const fakeStore = {
 };
 
 import { index } from "../src/commands/index";
-import { initialSync } from "../src/utils";
-import { createIndexingSpinner } from "../src/lib/sync-helpers";
 import { ensureSetup } from "../src/lib/setup-helpers";
+import { createIndexingSpinner } from "../src/lib/sync-helpers";
+import { initialSync } from "../src/utils";
 
 describe("index command", () => {
   beforeEach(() => {
@@ -69,8 +69,8 @@ describe("index command", () => {
     expect(ensureSetup).toHaveBeenCalledOnce();
     expect(initialSync).toHaveBeenCalledOnce();
     expect(fakeStore.close).toHaveBeenCalledOnce();
-    const spinner = (createIndexingSpinner as any).mock.results[0]
-      .value.spinner;
+    const spinner = (createIndexingSpinner as any).mock.results[0].value
+      .spinner;
     expect(spinner.succeed).toHaveBeenCalled();
   });
 });

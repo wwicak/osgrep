@@ -1,10 +1,10 @@
 import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import * as os from "node:os";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NodeFileSystem } from "../src/lib/file";
-import { GitIgnoreFilter } from "../src/lib/git";
 import type { Git } from "../src/lib/git";
+import { GitIgnoreFilter } from "../src/lib/git";
 
 class FakeGit implements Git {
   constructor(private readonly isRepo = false) {}
@@ -133,9 +133,7 @@ describe("GitIgnoreFilter", () => {
       expect(filter.isIgnored(distDir, temp)).toBe(true);
       expect(filter.isIgnored(path.join(distDir, "file.js"), temp)).toBe(true);
       expect(filter.isIgnored(path.join(appDir, "debug.log"), temp)).toBe(true);
-      expect(filter.isIgnored(path.join(appDir, "index.ts"), temp)).toBe(
-        false,
-      );
+      expect(filter.isIgnored(path.join(appDir, "index.ts"), temp)).toBe(false);
 
       await fs.rm(temp, { recursive: true, force: true });
     });

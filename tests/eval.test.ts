@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { cases, type EvalCase, evaluateCase } from "../src/eval";
 import type { SearchResponse } from "../src/lib/store";
-import { cases, evaluateCase, type EvalCase } from "../src/eval";
 
 function buildResponse(paths: string[]): SearchResponse {
   return {

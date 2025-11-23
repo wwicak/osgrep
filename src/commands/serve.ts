@@ -1,13 +1,13 @@
-import * as http from "node:http";
 import * as fs from "node:fs";
+import * as http from "node:http";
 import * as path from "node:path";
-import { Command } from "commander";
 import chokidar, { type FSWatcher } from "chokidar";
+import { Command } from "commander";
 import { createFileSystem, createStore } from "../lib/context";
 import { ensureSetup } from "../lib/setup-helpers";
+import type { Store } from "../lib/store";
 import { ensureStoreExists, isStoreEmpty } from "../lib/store-helpers";
 import { getAutoStoreId } from "../lib/store-resolver";
-import type { Store } from "../lib/store";
 import {
   clearServerLock,
   computeBufferHash,
@@ -38,7 +38,9 @@ function toDenseResults(
       typeof item.metadata?.path === "string"
         ? (item.metadata.path as string)
         : "";
-    const relPath = rawPath ? path.relative(root, rawPath) || rawPath : "unknown";
+    const relPath = rawPath
+      ? path.relative(root, rawPath) || rawPath
+      : "unknown";
     const snippet = formatDenseSnippet(item.text ?? "");
     return {
       path: relPath,
@@ -85,10 +87,7 @@ async function createWatcher(
         continue;
       }
 
-      if (
-        fileSystem.isIgnored(filePath, root) ||
-        !isIndexablePath(filePath)
-      ) {
+      if (fileSystem.isIgnored(filePath, root) || !isIndexablePath(filePath)) {
         continue;
       }
 
@@ -154,7 +153,11 @@ async function respondJson(
 
 export const serve = new Command("serve")
   .description("Run osgrep as a background server with live indexing")
-  .option("-p, --port <port>", "Port to listen on", process.env.OSGREP_PORT || "4444")
+  .option(
+    "-p, --port <port>",
+    "Port to listen on",
+    process.env.OSGREP_PORT || "4444",
+  )
   .action(async (_args, cmd) => {
     const options: { port: string; store?: string } = cmd.optsWithGlobals();
     const port = parseInt(options.port, 10);

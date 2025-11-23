@@ -1,4 +1,4 @@
-import { extname, join, relative, normalize } from "node:path";
+import { extname, join, normalize, relative } from "node:path";
 import { highlight } from "cli-highlight";
 import type { Command } from "commander";
 import { Command as CommanderCommand } from "commander";
@@ -92,7 +92,7 @@ function cleanSnippet(body: string): {
   cleanedLines: string[];
   linesRemoved: number;
 } {
-  let lines = body.split("\n");
+  const lines = body.split("\n");
   let linesRemoved = 0;
 
   // Metadata prefixes to strip from the *start* of the snippet
@@ -279,7 +279,7 @@ function formatSearchResults(
       const nextStep = options.perFile + Math.min(remaining, 5);
       output += `      ${style.dim(`... +${remaining} more matches (rerun with --per-file ${nextStep})`)}\n`;
     }
-    
+
     output += "\n"; // Separator between files
   }
 
@@ -294,11 +294,7 @@ export const search: Command = new CommanderCommand("search")
     "25",
   )
   .option("-c, --content", "Show full chunk content instead of snippets", false)
-  .option(
-    "--per-file <n>",
-    "Number of matches to show per file",
-    "1",
-  )
+  .option("--per-file <n>", "Number of matches to show per file", "1")
   .option("--scores", "Show relevance scores", false)
   .option("--compact", "Show file paths only", false)
   .option("--json", "Output results as JSON for machine consumption", false)
@@ -353,19 +349,16 @@ export const search: Command = new CommanderCommand("search")
       }
 
       try {
-        const searchRes = await fetch(
-          `http://localhost:${lock.port}/search`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              query: pattern,
-              limit: parseInt(options.m, 10),
-              rerank: true,
-              path: exec_path ?? "",
-            }),
-          },
-        );
+        const searchRes = await fetch(`http://localhost:${lock.port}/search`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: pattern,
+            limit: parseInt(options.m, 10),
+            rerank: true,
+            path: exec_path ?? "",
+          }),
+        });
         if (!searchRes.ok) return false;
         const payload = await searchRes.json();
         console.log(JSON.stringify(payload));
@@ -386,13 +379,12 @@ export const search: Command = new CommanderCommand("search")
     try {
       await ensureSetup({ silent: options.json });
       store = await createStore();
-      
+
       // Auto-detect store ID if not explicitly provided
       const storeId = options.store || getAutoStoreId(root);
-      
+
       await ensureStoreExists(store, storeId);
-      const autoSync =
-        options.sync || (await isStoreEmpty(store, storeId));
+      const autoSync = options.sync || (await isStoreEmpty(store, storeId));
       let didSync = false;
 
       if (autoSync) {
@@ -409,7 +401,7 @@ export const search: Command = new CommanderCommand("search")
           ],
         });
         const metaStore = new MetaStore();
-        
+
         if (options.json) {
           // JSON mode: silent indexing without UI
           await initialSync(

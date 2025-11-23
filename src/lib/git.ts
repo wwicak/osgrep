@@ -287,10 +287,14 @@ export class NodeGit implements Git {
 
     let remote: string | null = null;
     try {
-      const result = spawnSync("git", ["config", "--get", "remote.origin.url"], {
-        cwd: dir,
-        encoding: "utf-8",
-      });
+      const result = spawnSync(
+        "git",
+        ["config", "--get", "remote.origin.url"],
+        {
+          cwd: dir,
+          encoding: "utf-8",
+        },
+      );
       if (result.status === 0 && !result.error && result.stdout) {
         remote = result.stdout.trim();
       }

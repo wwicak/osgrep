@@ -129,9 +129,10 @@ export const list = new Command("list")
       console.log();
     }
 
-    console.log(style.dim(`To clean up a store: rm -rf ~/.osgrep/data/<store-name>`));
+    console.log(
+      style.dim(`To clean up a store: rm -rf ~/.osgrep/data/<store-name>`),
+    );
     console.log(
       style.dim(`To use a specific store: osgrep --store <store-name> <query>`),
     );
   });
-

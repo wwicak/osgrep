@@ -1,19 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  dotProduct,
-  cosineSimilarity,
-  fastSigmoid,
-  normalizeScores,
-  blendScores,
   argsortDesc,
-  computeRrfScores,
-  fuseRrfScores,
-  l2Normalize,
   batchL2Normalize,
+  benchmark,
+  blendScores,
   computeDistanceMatrix,
+  computeRrfScores,
+  cosineSimilarity,
+  dotProduct,
+  fastSigmoid,
+  fuseRrfScores,
   getSimdLevel,
   isNativeAvailable,
-  benchmark,
+  l2Normalize,
+  normalizeScores,
 } from "../src/lib/simd";
 
 describe("SIMD optimized operations", () => {

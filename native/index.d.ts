@@ -30,7 +30,10 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number;
  * Batch compute dot products against a single query
  * Uses parallel processing for batches >= 32
  */
-export function batchDotProduct(query: Float32Array, vectors: Float32Array[]): number[];
+export function batchDotProduct(
+  query: Float32Array,
+  vectors: Float32Array[],
+): number[];
 
 /**
  * RRF score computation: score = 1/(k + rank)

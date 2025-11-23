@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SearchResponse } from "../src/lib/store";
 import { LocalStore } from "../src/lib/local-store";
+import type { SearchResponse } from "../src/lib/store";
 
 type FakeTableRecord = {
   path: string;
@@ -27,7 +27,7 @@ function buildTable({
     search: vi.fn((query: unknown) => {
       let filterClause: string | null = null;
       const resultSet =
-        typeof query === "string" ? ftsResults ?? [] : vectorResults;
+        typeof query === "string" ? (ftsResults ?? []) : vectorResults;
       const queryWrapper: any = {
         limit: vi.fn(() => queryWrapper),
         where: vi.fn((clause: string) => {

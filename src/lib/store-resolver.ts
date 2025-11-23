@@ -19,7 +19,7 @@ export function extractRepoInfoFromUrl(url: string): string {
   const cleanUrl = url.replace(/\.git$/, "");
 
   // Split by both / and : to handle various URL formats
-  const parts = cleanUrl.split(/[\/:]/);
+  const parts = cleanUrl.split(/[/:]/);
 
   // Extract last two non-empty parts (owner and repo)
   const nonEmptyParts = parts.filter((p) => p.length > 0);
@@ -33,7 +33,9 @@ export function extractRepoInfoFromUrl(url: string): string {
   }
 
   // Fallback to just the last part (repo name)
-  return nonEmptyParts[nonEmptyParts.length - 1]?.toLowerCase() || "unknown-repo";
+  return (
+    nonEmptyParts[nonEmptyParts.length - 1]?.toLowerCase() || "unknown-repo"
+  );
 }
 
 /**
@@ -86,4 +88,3 @@ export function getAutoStoreId(targetDir: string = process.cwd()): string {
 
   return sanitizeStoreName(`${folderName}-${pathHash}`);
 }
-

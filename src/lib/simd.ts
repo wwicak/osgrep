@@ -161,7 +161,9 @@ export function blendScores(
     return native.blendScores(rerankScores, rrfScores, weightRerank, weightRrf);
   }
 
-  return rerankScores.map((r, i) => weightRerank * r + weightRrf * rrfScores[i]);
+  return rerankScores.map(
+    (r, i) => weightRerank * r + weightRrf * rrfScores[i],
+  );
 }
 
 /**

@@ -5,7 +5,6 @@ import { Worker } from "node:worker_threads";
 import * as lancedb from "@lancedb/lancedb";
 import { v4 as uuidv4 } from "uuid";
 import type {
-  
   ChunkType,
   CreateStoreOptions,
   IndexFileOptions,
@@ -36,6 +35,7 @@ type VectorRecord = {
 } & Record<string, unknown>;
 
 import { type Chunk, TreeSitterChunker } from "./chunker";
+
 type ChunkWithContext = Chunk & {
   context: string[];
   chunkIndex?: number;
@@ -47,8 +47,9 @@ type PendingRequest = {
   payload: WorkerRequest;
   timeoutId?: NodeJS.Timeout;
 };
+
 import { LRUCache } from "./lru";
-import { normalizeScores, blendScores, argsortDesc } from "./simd";
+import { argsortDesc, blendScores, normalizeScores } from "./simd";
 
 const PROFILE_ENABLED =
   process.env.OSGREP_PROFILE === "1" || process.env.OSGREP_PROFILE === "true";
@@ -366,11 +367,7 @@ export class LocalStore implements Store {
     );
     const neighbors: VectorRecord[] = [];
     for (const idx of neighborIndices) {
-      const neighbor = await this.fetchNeighborChunk(
-        table,
-        record.path,
-        idx,
-      );
+      const neighbor = await this.fetchNeighborChunk(table, record.path, idx);
       if (neighbor) neighbors.push(neighbor);
     }
 
@@ -707,7 +704,8 @@ export class LocalStore implements Store {
               ? idx - 1
               : idx,
         isAnchor:
-          chunkWithContext.isAnchor === true || (anchorChunk ? idx === 0 : false),
+          chunkWithContext.isAnchor === true ||
+          (anchorChunk ? idx === 0 : false),
       };
     });
     this.profile.totalChunkCount += anchorChunk ? 1 : 0;
@@ -798,14 +796,14 @@ export class LocalStore implements Store {
 
   async createVectorIndex(storeId: string): Promise<void> {
     const table = await this.getTable(storeId);
-    
+
     // Guard against small tables - LanceDB IVF_PQ requires 256 rows to train
     // If we have fewer, flat search is faster anyway and we avoid crashes
     const rowCount = await table.countRows();
     if (rowCount < 256) {
       return;
     }
-    
+
     try {
       const vectorIndexOptions: Record<string, unknown> = { type: "ivf_flat" };
       await table.createIndex("vector", vectorIndexOptions);
@@ -845,11 +843,12 @@ export class LocalStore implements Store {
     const queryVector = await this.getEmbedding(this.queryPrefix + query);
     const finalLimit = top_k ?? 10;
     const totalChunks = await table.countRows();
-    const candidateLimit = Math.min(400, Math.max(100, 2 * Math.sqrt(totalChunks)));
+    const candidateLimit = Math.min(
+      400,
+      Math.max(100, 2 * Math.sqrt(totalChunks)),
+    );
 
-    const allFilters = Array.isArray(
-      (_filters as { all?: unknown })?.all,
-    )
+    const allFilters = Array.isArray((_filters as { all?: unknown })?.all)
       ? ((_filters as { all?: unknown }).all as Record<string, unknown>[])
       : [];
     const pathFilterEntry = allFilters.find(
@@ -863,7 +862,7 @@ export class LocalStore implements Store {
       ? `path LIKE '${pathPrefix.replace(/'/g, "''")}%'`
       : undefined;
 
-    // 2. Parallel Retrieval: Vector + FTS 
+    // 2. Parallel Retrieval: Vector + FTS
     const vectorSearchQuery = table.search(queryVector).limit(candidateLimit);
     const ftsSearchQuery = table.search(query).limit(candidateLimit);
 
@@ -928,7 +927,12 @@ export class LocalStore implements Store {
       const rerankScores = await this.rerankDocuments(query, docs);
 
       // SIMD-optimized batch score blending (70% neural + 30% RRF)
-      const blendedScores = blendScores(rerankScores, normalizedRrfScores, 0.7, 0.3);
+      const blendedScores = blendScores(
+        rerankScores,
+        normalizedRrfScores,
+        0.7,
+        0.3,
+      );
 
       finalResults = candidates.map((r, i) => ({
         record: r,
@@ -964,7 +968,7 @@ export class LocalStore implements Store {
         metadata: {
           path: record.path as string,
           hash: (record.hash as string) || "",
-          is_anchor: record.is_anchor === true, 
+          is_anchor: record.is_anchor === true,
         },
         generated_metadata: {
           start_line: startLine,
@@ -1013,7 +1017,7 @@ export class LocalStore implements Store {
   async close(): Promise<void> {
     // Mark as closing to suppress error messages
     this.isClosing = true;
-    
+
     // Clean shutdown: ask worker to exit gracefully, then terminate if needed
     try {
       // Send shutdown message

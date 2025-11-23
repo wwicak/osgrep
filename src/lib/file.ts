@@ -123,7 +123,7 @@ export class NodeFileSystem implements FileSystem {
     if (relativePath.startsWith("..")) {
       return true;
     }
-    let normalizedPath = relativePath.replace(/\\/g, "/");
+    const normalizedPath = relativePath.replace(/\\/g, "/");
     // The root directory resolves to an empty relative path; avoid passing "./"
     // to the ignore library, which expects already-relativized paths.
     if (!normalizedPath) {

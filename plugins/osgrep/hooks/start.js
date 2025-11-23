@@ -28,7 +28,7 @@ function main() {
     hookSpecificOutput: {
       hookEventName: "SessionStart",
       additionalContext:
-        "osgrep serve started; prefer `osgrep --json \"<question>\"` over grep.",
+        'osgrep serve started; prefer `osgrep --json "<question>"` over grep.',
     },
   };
   process.stdout.write(JSON.stringify(response));
