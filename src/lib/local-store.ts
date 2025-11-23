@@ -48,6 +48,7 @@ type PendingRequest = {
   timeoutId?: NodeJS.Timeout;
 };
 import { LRUCache } from "./lru";
+import { normalizeScores, blendScores, argsortDesc } from "./simd";
 
 const PROFILE_ENABLED =
   process.env.OSGREP_PROFILE === "1" || process.env.OSGREP_PROFILE === "true";
@@ -907,30 +908,34 @@ export class LocalStore implements Store {
       return { data: [] };
     }
 
-    // 4. Neural Reranking (The Brains) + score blending
-    const rrfValues = Array.from(rrfScores.values());
-    const maxRrf = rrfValues.length > 0 ? Math.max(...rrfValues) : 0;
-    const normalizeRrf = (key: string) =>
-      maxRrf > 0 ? (rrfScores.get(key) || 0) / maxRrf : 0;
-
-    let finalResults = candidates.map((r) => {
+    // 4. Neural Reranking (The Brains) + SIMD-optimized score blending
+    // Extract RRF scores in candidate order and normalize using SIMD
+    const candidateRrfScores = candidates.map((r) => {
       const key = `${r.path}:${r.start_line}`;
-      const rrfScore = normalizeRrf(key);
-      return { record: r, score: rrfScore, rrfScore, rerankScore: 0 };
+      return rrfScores.get(key) || 0;
     });
+    const normalizedRrfScores = normalizeScores(candidateRrfScores);
+
+    let finalResults = candidates.map((r, i) => ({
+      record: r,
+      score: normalizedRrfScores[i],
+      rrfScore: normalizedRrfScores[i],
+      rerankScore: 0,
+    }));
 
     try {
       const docs = candidates.map((r) => String(r.content ?? ""));
-      const scores = await this.rerankDocuments(query, docs);
+      const rerankScores = await this.rerankDocuments(query, docs);
 
-      // Update scores with Neural scores
-      finalResults = candidates.map((r, i) => {
-        const key = `${r.path}:${r.start_line}`;
-        const rrfScore = normalizeRrf(key);
-        const rerankScore = scores[i] ?? 0;
-        const blendedScore = 0.7 * rerankScore + 0.3 * rrfScore;
-        return { record: r, score: blendedScore, rrfScore, rerankScore };
-      });
+      // SIMD-optimized batch score blending (70% neural + 30% RRF)
+      const blendedScores = blendScores(rerankScores, normalizedRrfScores, 0.7, 0.3);
+
+      finalResults = candidates.map((r, i) => ({
+        record: r,
+        score: blendedScores[i],
+        rrfScore: normalizedRrfScores[i],
+        rerankScore: rerankScores[i] ?? 0,
+      }));
     } catch (e) {
       console.warn(
         "Reranker failed; falling back to blended RRF-only order:",
@@ -938,8 +943,9 @@ export class LocalStore implements Store {
       );
     }
 
-    // 5. Final Sort & Format
-    finalResults.sort((a, b) => b.score - a.score);
+    // 5. Final Sort & Format - use SIMD-optimized argsort for large result sets
+    const sortedIndices = argsortDesc(finalResults.map((r) => r.score));
+    finalResults = sortedIndices.map((i) => finalResults[i]);
     const limited = finalResults.slice(0, finalLimit);
 
     const expanded = await Promise.all(

@@ -2,6 +2,12 @@ dist/
 node_modules/
 *.tsbuildinfo
 *.tgz
+
+# Native addon build artifacts
+native/target/
+native/node_modules/
+native/*.node
+native/index.js
 ADVANCED.md
 test-build.sh
 TEST_SUITE_PROMPT.md

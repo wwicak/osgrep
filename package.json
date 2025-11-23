@@ -16,6 +16,8 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:native": "cd native && pnpm install && pnpm build",
+    "build:all": "pnpm build:native && pnpm build",
     "postbuild": "chmod +x dist/index.js",
     "dev": "npx tsc && node dist/index.js",
     "test": "vitest run",
@@ -24,6 +26,7 @@
     "benchmark:index": "./run-benchmark.sh $HOME/osgrep-benchmarks --index",
     "benchmark:agent": "npx tsx src/bench/benchmark-agent.ts",
     "benchmark:chart": "npx tsx src/bench/generate-benchmark-chart.ts",
+    "benchmark:simd": "npx tsx -e \"const {benchmark} = require('./src/lib/simd'); console.log(benchmark(100000));\"",
     "format": "biome check --write .",
     "format:check": "biome check .",
     "lint": "biome lint .",
@@ -39,6 +42,8 @@
   "files": [
     "dist",
     "plugins",
+    "native/*.node",
+    "native/index.d.ts",
     "README.md"
   ],
   "license": "Apache-2.0",
