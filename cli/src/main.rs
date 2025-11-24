@@ -203,6 +203,9 @@ fn cmd_search(
     let store_name = name.unwrap_or_else(|| "default".to_string());
     let db_path = get_db_path()?;
 
+    // Open store connection (required before search)
+    store::open(&db_path, &store_name)?;
+
     // Generate query embedding
     #[cfg(feature = "embeddings")]
     let query_vec = {
