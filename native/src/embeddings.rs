@@ -6,7 +6,8 @@
 //! - Lazy model loading - only loads when first embedding is requested
 //! - Streaming batch processing for large inputs
 //!
-//! Model: all-MiniLM-L6-v2 (~90MB, 384-dim embeddings)
+//! Model: BAAI/bge-base-en-v1.5 (~438MB, 768-dim embeddings)
+//! - Better for code retrieval and semantic search
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -220,13 +221,13 @@ pub fn get_embedding_backend() -> String {
 }
 
 /// Initialize the embedding model (lazy loaded on first use)
-/// model_id: HuggingFace model ID (default: "sentence-transformers/all-MiniLM-L6-v2")
+/// model_id: HuggingFace model ID (default: "BAAI/bge-base-en-v1.5")
 #[napi]
 pub fn init_embeddings(model_id: Option<String>) -> Result<bool> {
     #[cfg(feature = "embeddings")]
     {
         let model_id =
-            model_id.unwrap_or_else(|| "sentence-transformers/all-MiniLM-L6-v2".to_string());
+            model_id.unwrap_or_else(|| "BAAI/bge-base-en-v1.5".to_string());
 
         // Check if Metal should be used
         let use_metal = cfg!(all(target_os = "macos", feature = "metal"));
@@ -293,16 +294,16 @@ pub fn embed_batch(texts: Vec<String>) -> Result<Vec<Vec<f64>>> {
     }
 }
 
-/// Get embedding dimension (384 for all-MiniLM-L6-v2)
+/// Get embedding dimension (768 for bge-base-en-v1.5)
 #[napi]
 pub fn get_embedding_dim() -> u32 {
     #[cfg(feature = "embeddings")]
     {
-        MODEL.get().map(|m| m.dim as u32).unwrap_or(384)
+        MODEL.get().map(|m| m.dim as u32).unwrap_or(768)
     }
     #[cfg(not(feature = "embeddings"))]
     {
-        384
+        768
     }
 }
 

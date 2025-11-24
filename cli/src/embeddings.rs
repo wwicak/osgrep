@@ -1,8 +1,10 @@
 //! Native embeddings using Candle ML framework
 //!
-//! Memory-optimized for 8GB RAM:
+//! Uses BAAI/bge-base-en-v1.5 for high-quality code embeddings:
+//! - 768 dimensions, trained on diverse data including code
 //! - Uses Metal GPU acceleration on Apple Silicon
 //! - Processes batches in chunks of 32
+//! - L2 normalized outputs for cosine similarity
 
 use anyhow::Result;
 
@@ -41,7 +43,8 @@ impl EmbeddingModel {
             Device::Cpu
         };
 
-        let model_id = "sentence-transformers/all-MiniLM-L6-v2";
+        // BGE model - excellent for code retrieval, BERT-compatible
+        let model_id = "BAAI/bge-base-en-v1.5";
         let api = Api::new().map_err(|e| anyhow::anyhow!("HF API error: {}", e))?;
         let repo = api.repo(Repo::new(model_id.to_string(), RepoType::Model));
 
@@ -157,7 +160,19 @@ impl EmbeddingModel {
             .broadcast_div(&counts)
             .map_err(|e| anyhow::anyhow!("Div error: {}", e))?;
 
-        let flat: Vec<f32> = pooled
+        // L2 normalize the embeddings (required for BGE model)
+        let norm = pooled
+            .sqr()
+            .map_err(|e| anyhow::anyhow!("Sqr error: {}", e))?
+            .sum_keepdim(1)
+            .map_err(|e| anyhow::anyhow!("Sum keepdim error: {}", e))?
+            .sqrt()
+            .map_err(|e| anyhow::anyhow!("Sqrt error: {}", e))?;
+        let normalized = pooled
+            .broadcast_div(&norm)
+            .map_err(|e| anyhow::anyhow!("Normalize error: {}", e))?;
+
+        let flat: Vec<f32> = normalized
             .to_vec2::<f32>()
             .map_err(|e| anyhow::anyhow!("To vec error: {}", e))?
             .into_iter()
@@ -196,7 +211,7 @@ pub fn embed(text: &str) -> Result<Vec<f32>> {
 #[cfg(not(feature = "embeddings"))]
 #[allow(dead_code)]
 pub fn embed(_text: &str) -> Result<Vec<f32>> {
-    Ok(vec![0.0f32; 384])
+    Ok(vec![0.0f32; 768]) // BGE base dimension
 }
 
 /// Embed multiple texts (batch processing)
@@ -220,5 +235,5 @@ pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
 #[cfg(not(feature = "embeddings"))]
 #[allow(dead_code)]
 pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    Ok(texts.iter().map(|_| vec![0.0f32; 384]).collect())
+    Ok(texts.iter().map(|_| vec![0.0f32; 768]).collect()) // BGE base dimension
 }

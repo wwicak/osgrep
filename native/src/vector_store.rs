@@ -121,7 +121,7 @@ pub fn open_store(db_path: String, store_id: String) -> Result<bool> {
                 r#"
                 CREATE VIRTUAL TABLE IF NOT EXISTS "{store_id}_vec" USING vec0(
                     id TEXT PRIMARY KEY,
-                    embedding float[384]
+                    embedding float[768]
                 )
                 "#
             ),
