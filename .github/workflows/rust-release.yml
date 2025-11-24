@@ -2,10 +2,12 @@ name: Build Native Binaries
 
 on:
   push:
-    branches: [rust]
+    branches:
+      - rust
+      - 'claude/rust-rewrite-*'
     tags: ['v*']
   pull_request:
-    branches: [rust]
+    branches: [rust, main]
   workflow_dispatch:
 
 env:
