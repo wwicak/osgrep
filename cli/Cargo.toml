@@ -61,3 +61,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+
+# HTTP client for remote embeddings
+ureq = { workspace = true }

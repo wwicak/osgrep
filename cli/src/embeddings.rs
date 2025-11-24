@@ -1,15 +1,138 @@
-//! Native embeddings using Candle ML framework
+//! Embeddings module with support for local and remote providers
 //!
-//! Uses BAAI/bge-base-en-v1.5 for high-quality code embeddings:
-//! - 768 dimensions, trained on diverse data including code
-//! - Uses Metal GPU acceleration on Apple Silicon
-//! - Processes batches in chunks of 32
-//! - L2 normalized outputs for cosine similarity
+//! Supports two modes:
+//! 1. Local: Uses Candle ML with BAAI/bge-base-en-v1.5 (requires `embeddings` feature)
+//! 2. Remote: Uses OpenAI-compatible API (OpenRouter, OpenAI, etc.)
+//!
+//! Configuration via environment variables:
+//! - OSGREP_EMBEDDING_PROVIDER: "local" (default) or "openrouter"
+//! - OSGREP_EMBEDDING_API_KEY: API key for remote provider
+//! - OSGREP_EMBEDDING_MODEL: Model name (default: google/gemini-embedding-001)
+//! - OSGREP_EMBEDDING_BASE_URL: Base URL (default: https://openrouter.ai/api/v1)
+//! - OSGREP_EMBEDDING_DIMENSIONS: Vector dimensions (default: 768)
 
 use anyhow::Result;
+use std::sync::OnceLock;
+
+// Remote embedding provider configuration
+struct RemoteConfig {
+    api_key: String,
+    base_url: String,
+    model: String,
+    dimensions: usize,
+}
+
+static REMOTE_CONFIG: OnceLock<Option<RemoteConfig>> = OnceLock::new();
+
+fn get_remote_config() -> Option<&'static RemoteConfig> {
+    REMOTE_CONFIG
+        .get_or_init(|| {
+            let provider = std::env::var("OSGREP_EMBEDDING_PROVIDER").unwrap_or_default();
+            if provider != "openrouter" && provider != "openai" && provider != "remote" {
+                return None;
+            }
+
+            let api_key = std::env::var("OSGREP_EMBEDDING_API_KEY").ok()?;
+            if api_key.is_empty() {
+                return None;
+            }
+
+            Some(RemoteConfig {
+                api_key,
+                base_url: std::env::var("OSGREP_EMBEDDING_BASE_URL")
+                    .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string()),
+                model: std::env::var("OSGREP_EMBEDDING_MODEL")
+                    .unwrap_or_else(|_| "google/gemini-embedding-001".to_string()),
+                dimensions: std::env::var("OSGREP_EMBEDDING_DIMENSIONS")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(768),
+            })
+        })
+        .as_ref()
+}
+
+/// Check if using remote embeddings
+pub fn is_remote() -> bool {
+    get_remote_config().is_some()
+}
+
+/// Get embedding dimensions (for remote provider info)
+pub fn get_dimensions() -> usize {
+    get_remote_config().map(|c| c.dimensions).unwrap_or(768)
+}
+
+/// Get provider info for display
+pub fn get_provider_info() -> String {
+    if let Some(config) = get_remote_config() {
+        format!("remote ({} via {})", config.model, config.base_url)
+    } else {
+        #[cfg(feature = "embeddings")]
+        {
+            "local (BAAI/bge-base-en-v1.5)".to_string()
+        }
+        #[cfg(not(feature = "embeddings"))]
+        {
+            "disabled".to_string()
+        }
+    }
+}
+
+// ============================================================================
+// Remote embeddings via OpenAI-compatible API
+// ============================================================================
+
+fn remote_embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    let config = get_remote_config().ok_or_else(|| anyhow::anyhow!("Remote config not available"))?;
+
+    if texts.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // OpenAI-compatible embedding request
+    let request_body = serde_json::json!({
+        "model": config.model,
+        "input": texts,
+        "encoding_format": "float"
+    });
+
+    let response = ureq::post(&format!("{}/embeddings", config.base_url))
+        .set("Authorization", &format!("Bearer {}", config.api_key))
+        .set("Content-Type", "application/json")
+        .set("HTTP-Referer", "https://github.com/osgrep/osgrep")
+        .set("X-Title", "osgrep")
+        .send_json(&request_body)
+        .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
+
+    let response_body: serde_json::Value = response
+        .into_json()
+        .map_err(|e| anyhow::anyhow!("Failed to parse API response: {}", e))?;
+
+    // Extract embeddings from response
+    let data = response_body["data"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing 'data' array"))?;
+
+    let mut embeddings = Vec::with_capacity(texts.len());
+    for item in data {
+        let embedding = item["embedding"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing 'embedding'"))?
+            .iter()
+            .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+            .collect::<Vec<f32>>();
+        embeddings.push(embedding);
+    }
+
+    Ok(embeddings)
+}
+
+// ============================================================================
+// Local embeddings via Candle ML
+// ============================================================================
 
 #[cfg(feature = "embeddings")]
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 #[cfg(feature = "embeddings")]
 use {
@@ -43,7 +166,6 @@ impl EmbeddingModel {
             Device::Cpu
         };
 
-        // BGE model - excellent for code retrieval, BERT-compatible
         let model_id = "BAAI/bge-base-en-v1.5";
         let api = ApiBuilder::from_env()
             .build()
@@ -109,7 +231,6 @@ impl EmbeddingModel {
             .map_err(|e| anyhow::anyhow!("Tokenization error: {}", e))?;
 
         let input_ids: Vec<Vec<u32>> = encodings.iter().map(|e| e.get_ids().to_vec()).collect();
-
         let attention_mask: Vec<Vec<u32>> = encodings
             .iter()
             .map(|e| e.get_attention_mask().to_vec())
@@ -162,7 +283,7 @@ impl EmbeddingModel {
             .broadcast_div(&counts)
             .map_err(|e| anyhow::anyhow!("Div error: {}", e))?;
 
-        // L2 normalize the embeddings (required for BGE model)
+        // L2 normalize
         let norm = pooled
             .sqr()
             .map_err(|e| anyhow::anyhow!("Sqr error: {}", e))?
@@ -184,43 +305,8 @@ impl EmbeddingModel {
     }
 }
 
-/// Initialize the embedding model
 #[cfg(feature = "embeddings")]
-pub fn init() -> Result<()> {
-    if MODEL.get().is_none() {
-        let model = EmbeddingModel::new()?;
-        let _ = MODEL.set(Mutex::new(model));
-    }
-    Ok(())
-}
-
-#[cfg(not(feature = "embeddings"))]
-#[allow(dead_code)]
-pub fn init() -> Result<()> {
-    Ok(())
-}
-
-/// Embed a single text
-#[cfg(feature = "embeddings")]
-pub fn embed(text: &str) -> Result<Vec<f32>> {
-    let model = MODEL
-        .get()
-        .ok_or_else(|| anyhow::anyhow!("Model not initialized"))?
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Failed to lock model: {}", e))?;
-    let embeddings = model.embed_batch(&[text.to_string()])?;
-    Ok(embeddings.into_iter().next().unwrap_or_default())
-}
-
-#[cfg(not(feature = "embeddings"))]
-#[allow(dead_code)]
-pub fn embed(_text: &str) -> Result<Vec<f32>> {
-    Ok(vec![0.0f32; 768]) // BGE base dimension
-}
-
-/// Embed multiple texts (batch processing)
-#[cfg(feature = "embeddings")]
-pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+fn local_embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     let model = MODEL
         .get()
         .ok_or_else(|| anyhow::anyhow!("Model not initialized"))?
@@ -238,8 +324,68 @@ pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     Ok(all_embeddings)
 }
 
-#[cfg(not(feature = "embeddings"))]
-#[allow(dead_code)]
+// ============================================================================
+// Public API
+// ============================================================================
+
+/// Initialize the embedding provider (local model or verify remote config)
+pub fn init() -> Result<()> {
+    if is_remote() {
+        // Remote provider - just verify config is valid
+        let config = get_remote_config().unwrap();
+        eprintln!(
+            "  Using remote embeddings: {} ({})",
+            config.model, config.base_url
+        );
+        Ok(())
+    } else {
+        #[cfg(feature = "embeddings")]
+        {
+            if MODEL.get().is_none() {
+                let model = EmbeddingModel::new()?;
+                let _ = MODEL.set(Mutex::new(model));
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "embeddings"))]
+        {
+            anyhow::bail!(
+                "No embedding provider configured. Either:\n\
+                 1. Build with --features embeddings for local model\n\
+                 2. Set OSGREP_EMBEDDING_PROVIDER=openrouter and OSGREP_EMBEDDING_API_KEY"
+            )
+        }
+    }
+}
+
+/// Embed a single text
+pub fn embed(text: &str) -> Result<Vec<f32>> {
+    let embeddings = embed_batch(&[text.to_string()])?;
+    Ok(embeddings.into_iter().next().unwrap_or_default())
+}
+
+/// Embed multiple texts (batch processing)
 pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    Ok(texts.iter().map(|_| vec![0.0f32; 768]).collect()) // BGE base dimension
+    if is_remote() {
+        // Use remote API with batching (most APIs support up to 2048 inputs)
+        const BATCH_SIZE: usize = 100; // Conservative batch size for API
+        let mut all_embeddings = Vec::with_capacity(texts.len());
+
+        for chunk in texts.chunks(BATCH_SIZE) {
+            let chunk_embeddings = remote_embed_batch(&chunk.to_vec())?;
+            all_embeddings.extend(chunk_embeddings);
+        }
+
+        Ok(all_embeddings)
+    } else {
+        #[cfg(feature = "embeddings")]
+        {
+            local_embed_batch(texts)
+        }
+        #[cfg(not(feature = "embeddings"))]
+        {
+            // Return zero vectors if no provider available
+            Ok(texts.iter().map(|_| vec![0.0f32; 768]).collect())
+        }
+    }
 }

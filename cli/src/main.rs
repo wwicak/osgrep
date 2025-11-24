@@ -314,17 +314,11 @@ fn cmd_search(
     store::open(&db_path, &store_name)?;
 
     // Generate query embedding
-    #[cfg(feature = "embeddings")]
-    let query_vec = {
-        embeddings::init()?;
-        embeddings::embed(&format!(
-            "Represent this sentence for searching relevant passages: {}",
-            query
-        ))?
-    };
-
-    #[cfg(not(feature = "embeddings"))]
-    let query_vec = vec![0.0f32; 768]; // BGE base dimension
+    embeddings::init()?;
+    let query_vec = embeddings::embed(&format!(
+        "Represent this sentence for searching relevant passages: {}",
+        query
+    ))?;
 
     // Search
     let results = store::search(
@@ -427,17 +421,14 @@ fn cmd_info() -> Result<()> {
     // SIMD level
     println!("SIMD: {}", simd::get_level());
 
-    // Embeddings
-    #[cfg(feature = "embeddings")]
-    {
-        println!("Embeddings: candle (native)");
+    // Embeddings provider
+    println!("Embeddings: {}", embeddings::get_provider_info());
+    if !embeddings::is_remote() {
         #[cfg(feature = "metal")]
         println!("  Metal: enabled");
         #[cfg(not(feature = "metal"))]
         println!("  Metal: disabled");
     }
-    #[cfg(not(feature = "embeddings"))]
-    println!("Embeddings: disabled");
 
     // Storage
     #[cfg(feature = "sqlite")]
