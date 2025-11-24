@@ -169,3 +169,48 @@ jobs:
       - name: Build with parallel feature
         working-directory: native
         run: cargo build --release --features parallel
+
+  # Build with embeddings feature (macOS with Metal)
+  build-embeddings:
+    runs-on: macos-14
+    name: Build embeddings (darwin-arm64)
+    continue-on-error: true  # Optional - don't fail CI if embeddings build fails
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: 'native/pnpm-lock.yaml'
+
+      - name: Install dependencies
+        working-directory: native
+        run: pnpm install
+
+      - name: Build native addon with embeddings + metal
+        working-directory: native
+        run: |
+          cargo build --release --features "embeddings,metal"
+        env:
+          CARGO_BUILD_TARGET: aarch64-apple-darwin
+
+      - name: Upload embeddings artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-darwin-arm64-embeddings
+          path: native/target/aarch64-apple-darwin/release/*.dylib
+          if-no-files-found: warn

@@ -23,6 +23,10 @@
   "scripts": {
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
+    "build:parallel": "napi build --platform --release --features parallel",
+    "build:embeddings": "napi build --platform --release --features embeddings",
+    "build:metal": "napi build --platform --release --features embeddings,metal",
+    "build:full": "napi build --platform --release --features parallel,embeddings,metal",
     "prepublishOnly": "napi prepublish -t npm"
   },
   "devDependencies": {

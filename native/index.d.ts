@@ -90,3 +90,65 @@ export function batchL2Normalize(vectors: Float32Array[]): Float32Array[];
  * Uses parallel processing for O(n²) computation
  */
 export function computeDistanceMatrix(vectors: Float32Array[]): number[];
+
+// ============================================================================
+// Native Embeddings (requires --features embeddings)
+// ============================================================================
+
+/**
+ * Check if native embeddings are available
+ * Returns false if built without --features embeddings
+ */
+export function isEmbeddingsAvailable(): boolean;
+
+/**
+ * Get the embedding backend being used
+ * Returns: "candle-metal" | "candle-cpu" | "none"
+ */
+export function getEmbeddingBackend(): string;
+
+/**
+ * Initialize the embedding model (lazy loaded)
+ * Downloads model from HuggingFace Hub on first call
+ * @param modelId - HuggingFace model ID (default: "sentence-transformers/all-MiniLM-L6-v2")
+ */
+export function initEmbeddings(modelId?: string): boolean;
+
+/**
+ * Embed a single text
+ * @param text - Text to embed
+ * @returns 384-dimensional embedding vector (for all-MiniLM-L6-v2)
+ */
+export function embed(text: string): number[];
+
+/**
+ * Embed multiple texts in a batch (more efficient)
+ * For 8GB RAM: processes in chunks of 32 to avoid memory spikes
+ * @param texts - Array of texts to embed
+ * @returns Array of embedding vectors
+ */
+export function embedBatch(texts: string[]): number[][];
+
+/**
+ * Get embedding dimension (384 for all-MiniLM-L6-v2)
+ */
+export function getEmbeddingDim(): number;
+
+/**
+ * Compute similarity between two texts
+ * @returns Similarity score between -1 and 1
+ */
+export function textSimilarity(textA: string, textB: string): number;
+
+/**
+ * Search for most similar texts from candidates
+ * @param query - Query text
+ * @param candidates - Array of candidate texts
+ * @param topK - Number of results to return (default: 10)
+ * @returns Indices of most similar candidates, sorted by similarity
+ */
+export function searchSimilar(
+  query: string,
+  candidates: string[],
+  topK?: number,
+): number[];

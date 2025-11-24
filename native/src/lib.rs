@@ -6,7 +6,10 @@
 //! - SSE4.1: 4 floats/cycle
 //! - NEON: 4 floats/cycle (ARM64)
 //!
-//! Optional parallel processing with --features parallel
+//! Optional features:
+//! - --features parallel: Parallel processing with Rayon
+//! - --features embeddings: Native sentence embeddings with Candle
+//! - --features metal: Metal GPU acceleration for Apple Silicon
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -15,6 +18,13 @@ use napi_derive::napi;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+
+// Native embeddings module (optional)
+#[cfg(feature = "embeddings")]
+mod embeddings;
+
+#[cfg(feature = "embeddings")]
+pub use embeddings::*;
 
 // ============================================================================
 // SIMD Level Detection
