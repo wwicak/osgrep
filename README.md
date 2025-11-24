@@ -288,6 +288,70 @@ osgrep is designed to be a "good citizen" on your machine:
 
 ## Configuration
 
+### Embedding Providers
+
+osgrep supports two embedding modes:
+
+1. **Local** (default): Uses Candle ML with BAAI/bge-base-en-v1.5 (~417MB model)
+2. **Remote**: Uses cloud APIs like OpenRouter, OpenAI, or any OpenAI-compatible endpoint
+
+#### Using Remote Embeddings (Recommended for low-memory systems)
+
+If local embeddings crash your system or are too slow, use cloud-based embeddings:
+
+**1. Create config file:**
+```bash
+osgrep config --init
+```
+
+**2. Edit `~/.osgrep/config.json`:**
+```json
+{
+  "embedding": {
+    "provider": "openrouter",
+    "api_key": "sk-or-v1-YOUR_API_KEY_HERE",
+    "model": "google/gemini-embedding-001",
+    "base_url": "https://openrouter.ai/api/v1"
+  }
+}
+```
+
+**3. Or use CLI commands:**
+```bash
+osgrep config --provider openrouter
+osgrep config --api-key sk-or-v1-...
+osgrep config --model google/gemini-embedding-001
+```
+
+#### Config Commands
+
+| Command | Description |
+|---------|-------------|
+| `osgrep config` | Show current configuration |
+| `osgrep config --init` | Create sample config file |
+| `osgrep config --path` | Print config file path |
+| `osgrep config --reset` | Delete config file |
+| `osgrep config --provider X` | Set embedding provider |
+| `osgrep config --api-key X` | Set API key |
+| `osgrep config --model X` | Set model name |
+| `osgrep config --base-url X` | Set API base URL |
+
+#### Supported Providers
+
+| Provider | `provider` value | `base_url` |
+|----------|------------------|------------|
+| OpenRouter | `openrouter` | `https://openrouter.ai/api/v1` (default) |
+| OpenAI | `openai` | `https://api.openai.com/v1` |
+| Local | `local` | N/A (uses Candle ML) |
+
+#### Recommended Models
+
+| Model | Provider | Dimensions | Notes |
+|-------|----------|------------|-------|
+| `google/gemini-embedding-001` | OpenRouter | 768 | Fast, good quality |
+| `text-embedding-3-small` | OpenAI | 1536 | Good balance |
+| `BAAI/bge-base-en-v1.5` | Local | 768 | Default local model |
+
 ### Automatic Repository Isolation
 
 osgrep automatically creates a unique index for each repository based on:
