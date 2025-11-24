@@ -4,13 +4,13 @@
 //! 1. Local: Uses Candle ML with BAAI/bge-base-en-v1.5 (requires `embeddings` feature)
 //! 2. Remote: Uses OpenAI-compatible API (OpenRouter, OpenAI, etc.)
 //!
-//! Configuration via environment variables:
-//! - OSGREP_EMBEDDING_PROVIDER: "local" (default) or "openrouter"
-//! - OSGREP_EMBEDDING_API_KEY: API key for remote provider
-//! - OSGREP_EMBEDDING_MODEL: Model name (default: google/gemini-embedding-001)
-//! - OSGREP_EMBEDDING_BASE_URL: Base URL (default: https://openrouter.ai/api/v1)
-//! - OSGREP_EMBEDDING_DIMENSIONS: Vector dimensions (default: 768)
+//! Configuration via ~/.osgrep/config.json or environment variables:
+//! - provider: "local" (default) or "openrouter"
+//! - api_key: API key for remote provider
+//! - model: Model name (default: google/gemini-embedding-001)
+//! - base_url: Base URL (default: https://openrouter.ai/api/v1)
 
+use crate::config;
 use anyhow::Result;
 use std::sync::OnceLock;
 
@@ -27,26 +27,31 @@ static REMOTE_CONFIG: OnceLock<Option<RemoteConfig>> = OnceLock::new();
 fn get_remote_config() -> Option<&'static RemoteConfig> {
     REMOTE_CONFIG
         .get_or_init(|| {
-            let provider = std::env::var("OSGREP_EMBEDDING_PROVIDER").unwrap_or_default();
+            let cfg = config::load();
+            let provider = cfg.embedding.provider.as_deref().unwrap_or("");
+
             if provider != "openrouter" && provider != "openai" && provider != "remote" {
                 return None;
             }
 
-            let api_key = std::env::var("OSGREP_EMBEDDING_API_KEY").ok()?;
+            let api_key = cfg.embedding.api_key.clone()?;
             if api_key.is_empty() {
                 return None;
             }
 
             Some(RemoteConfig {
                 api_key,
-                base_url: std::env::var("OSGREP_EMBEDDING_BASE_URL")
-                    .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string()),
-                model: std::env::var("OSGREP_EMBEDDING_MODEL")
-                    .unwrap_or_else(|_| "google/gemini-embedding-001".to_string()),
-                dimensions: std::env::var("OSGREP_EMBEDDING_DIMENSIONS")
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(768),
+                base_url: cfg
+                    .embedding
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
+                model: cfg
+                    .embedding
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "google/gemini-embedding-001".to_string()),
+                dimensions: cfg.embedding.dimensions.unwrap_or(768),
             })
         })
         .as_ref()

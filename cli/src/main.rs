@@ -16,6 +16,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::path::PathBuf;
 
 mod chunker;
+mod config;
 mod embeddings;
 mod simd;
 mod store;
@@ -82,6 +83,41 @@ enum Commands {
 
     /// Show system info
     Info,
+
+    /// Configure osgrep settings
+    Config {
+        /// Set embedding provider (openrouter, openai, local)
+        #[arg(long)]
+        provider: Option<String>,
+
+        /// Set API key for remote embeddings
+        #[arg(long)]
+        api_key: Option<String>,
+
+        /// Set embedding model name
+        #[arg(long)]
+        model: Option<String>,
+
+        /// Set API base URL
+        #[arg(long)]
+        base_url: Option<String>,
+
+        /// Show current config
+        #[arg(long)]
+        show: bool,
+
+        /// Create sample config file
+        #[arg(long)]
+        init: bool,
+
+        /// Print config file path only
+        #[arg(long)]
+        path: bool,
+
+        /// Delete config file
+        #[arg(long)]
+        reset: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -104,6 +140,16 @@ fn main() -> Result<()> {
         } => cmd_search(query, name, top_k, path, json, toon),
         Commands::List => cmd_list(),
         Commands::Info => cmd_info(),
+        Commands::Config {
+            provider,
+            api_key,
+            model,
+            base_url,
+            show,
+            init,
+            path,
+            reset,
+        } => cmd_config(provider, api_key, model, base_url, show, init, path, reset),
     }
 }
 
@@ -441,6 +487,96 @@ fn cmd_info() -> Result<()> {
     println!("Parallel: enabled (rayon)");
     #[cfg(not(feature = "parallel"))]
     println!("Parallel: disabled");
+
+    Ok(())
+}
+
+fn cmd_config(
+    provider: Option<String>,
+    api_key: Option<String>,
+    model: Option<String>,
+    base_url: Option<String>,
+    show: bool,
+    init: bool,
+    path_only: bool,
+    reset: bool,
+) -> Result<()> {
+    let config_path = config::get_config_path()?;
+
+    // Print path only
+    if path_only {
+        println!("{}", config_path.display());
+        return Ok(());
+    }
+
+    // Delete config file
+    if reset {
+        if config_path.exists() {
+            std::fs::remove_file(&config_path)?;
+            println!("{} Deleted config file: {}", style("✓").green(), config_path.display());
+        } else {
+            println!("{} No config file to delete", style("!").yellow());
+        }
+        return Ok(());
+    }
+
+    // Initialize sample config
+    if init {
+        let path = config::create_sample()?;
+        println!("{} Created config file at: {}", style("✓").green(), path.display());
+        println!();
+        println!("Edit the file to add your API key:");
+        println!("  {}", style(path.display()).cyan());
+        return Ok(());
+    }
+
+    // Show current config
+    if show || (provider.is_none() && api_key.is_none() && model.is_none() && base_url.is_none()) {
+        let cfg = config::load();
+        let config_path = config::get_config_path()?;
+
+        println!("{}", style("osgrep configuration").bold());
+        println!();
+        println!("Config file: {}", config_path.display());
+        if config_path.exists() {
+            println!("Status: {}", style("found").green());
+        } else {
+            println!("Status: {} (using defaults/env vars)", style("not found").yellow());
+        }
+        println!();
+        println!("Embedding settings:");
+        println!("  provider: {}", cfg.embedding.provider.as_deref().unwrap_or("local"));
+        println!("  api_key:  {}",
+            cfg.embedding.api_key.as_ref()
+                .map(|k| if k.len() > 10 { format!("{}...", &k[..10]) } else { k.clone() })
+                .unwrap_or_else(|| "(not set)".to_string())
+        );
+        println!("  model:    {}", cfg.embedding.model.as_deref().unwrap_or("google/gemini-embedding-001"));
+        println!("  base_url: {}", cfg.embedding.base_url.as_deref().unwrap_or("https://openrouter.ai/api/v1"));
+        println!();
+        println!("To configure remote embeddings:");
+        println!("  osgrep config --init                    # Create sample config");
+        println!("  osgrep config --provider openrouter     # Set provider");
+        println!("  osgrep config --api-key sk-or-...       # Set API key");
+        return Ok(());
+    }
+
+    // Update config values
+    config::set_embedding_config(provider.clone(), api_key.clone(), model.clone(), base_url.clone())?;
+
+    println!("{} Configuration updated", style("✓").green());
+    if provider.is_some() {
+        println!("  provider: {}", provider.unwrap());
+    }
+    if api_key.is_some() {
+        println!("  api_key: (set)");
+    }
+    if model.is_some() {
+        println!("  model: {}", model.unwrap());
+    }
+    if base_url.is_some() {
+        println!("  base_url: {}", base_url.unwrap());
+    }
 
     Ok(())
 }
