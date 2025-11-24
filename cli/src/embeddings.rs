@@ -9,7 +9,7 @@
 use anyhow::Result;
 
 #[cfg(feature = "embeddings")]
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 #[cfg(feature = "embeddings")]
 use {
@@ -21,7 +21,7 @@ use {
 };
 
 #[cfg(feature = "embeddings")]
-static MODEL: OnceLock<EmbeddingModel> = OnceLock::new();
+static MODEL: OnceLock<Mutex<EmbeddingModel>> = OnceLock::new();
 
 #[cfg(feature = "embeddings")]
 struct EmbeddingModel {
@@ -189,7 +189,7 @@ impl EmbeddingModel {
 pub fn init() -> Result<()> {
     if MODEL.get().is_none() {
         let model = EmbeddingModel::new()?;
-        let _ = MODEL.set(model);
+        let _ = MODEL.set(Mutex::new(model));
     }
     Ok(())
 }
@@ -205,7 +205,9 @@ pub fn init() -> Result<()> {
 pub fn embed(text: &str) -> Result<Vec<f32>> {
     let model = MODEL
         .get()
-        .ok_or_else(|| anyhow::anyhow!("Model not initialized"))?;
+        .ok_or_else(|| anyhow::anyhow!("Model not initialized"))?
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Failed to lock model: {}", e))?;
     let embeddings = model.embed_batch(&[text.to_string()])?;
     Ok(embeddings.into_iter().next().unwrap_or_default())
 }
@@ -221,7 +223,9 @@ pub fn embed(_text: &str) -> Result<Vec<f32>> {
 pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     let model = MODEL
         .get()
-        .ok_or_else(|| anyhow::anyhow!("Model not initialized"))?;
+        .ok_or_else(|| anyhow::anyhow!("Model not initialized"))?
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Failed to lock model: {}", e))?;
 
     const CHUNK_SIZE: usize = 32;
     let mut all_embeddings = Vec::with_capacity(texts.len());
