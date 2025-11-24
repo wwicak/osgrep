@@ -56,6 +56,16 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Update version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Updating version to $VERSION"
+          sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          rm -f Cargo.toml.bak
+          cat Cargo.toml | grep "^version"
+
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
