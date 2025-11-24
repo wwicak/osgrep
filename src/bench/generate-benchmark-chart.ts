@@ -205,7 +205,9 @@ function generateVisualization(results: BenchmarkComparison[]): string {
  * Update README with benchmark section
  */
 function updateReadme(visualizationMd: string, readmePath: string): void {
-	let readme = readFileSync(readmePath, 'utf-8');
+	// up another level to the root
+	const rootReadmePath = join(__dirname, '../../README.md');
+	let readme = readFileSync(rootReadmePath, 'utf-8');
 	
 	// Remove old benchmark section if it exists
 	const startMarker = '## 🎯 Agent Benchmark Results';

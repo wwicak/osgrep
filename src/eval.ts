@@ -1,3 +1,6 @@
+// Reduce worker pool fan-out during eval to avoid ONNX concurrency issues
+process.env.OSGREP_WORKER_COUNT ??= "1";
+
 import { LocalStore } from "./lib/local-store";
 
 import type { SearchResponse } from "./lib/store";
@@ -47,7 +50,7 @@ export const cases: EvalCase[] = [
   },
   {
     query: "prevent the background process from crashing the computer",
-    expectedPath: "src/lib/local-store.ts",
+    expectedPath: "src/lib/local-store.ts|src/lib/worker-manager.ts",
     note: "MAX_WORKER_RSS guard and restart.",
   },
   {
@@ -78,7 +81,7 @@ export const cases: EvalCase[] = [
   },
   {
     query: "worker thread management",
-    expectedPath: "src/lib/local-store.ts",
+    expectedPath: "src/lib/local-store.ts|src/lib/worker-manager.ts",
     note: "Worker init/restart and messaging.",
   },
   {
@@ -86,7 +89,10 @@ export const cases: EvalCase[] = [
     expectedPath: "src/lib/chunker.ts",
     note: "Tree-sitter traversal and slicing.",
   },
-  { query: "MAX_WORKER_RSS", expectedPath: "src/lib/local-store.ts" },
+  {
+    query: "MAX_WORKER_RSS",
+    expectedPath: "src/lib/local-store.ts|src/lib/worker-manager.ts",
+  },
   { query: "createVectorIndex", expectedPath: "src/lib/local-store.ts" },
   { query: "createFTSIndex", expectedPath: "src/lib/local-store.ts" },
   {
@@ -104,12 +110,12 @@ export const cases: EvalCase[] = [
   },
   {
     query: "restart worker when memory is high",
-    expectedPath: "src/lib/local-store.ts",
+    expectedPath: "src/lib/local-store.ts|src/lib/worker-manager.ts",
     note: "RSS guard and worker restart logic.",
   },
   {
     query: "serialize embedding requests",
-    expectedPath: "src/lib/local-store.ts",
+    expectedPath: "src/lib/local-store.ts|src/lib/worker-manager.ts",
     note: "embedQueue / enqueueEmbedding.",
   },
   {
@@ -247,11 +253,15 @@ export function evaluateCase(
   evalCase: EvalCase,
   timeMs: number,
 ): EvalResult {
-  const rank = response.data.findIndex((chunk) =>
-    chunk.metadata?.path
-      ?.toLowerCase()
-      .includes(evalCase.expectedPath.toLowerCase()),
-  );
+  const expectedPaths = evalCase.expectedPath
+    .split("|")
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
+
+  const rank = response.data.findIndex((chunk) => {
+    const path = chunk.metadata?.path?.toLowerCase() || "";
+    return expectedPaths.some((expected) => path.includes(expected));
+  });
 
   const avoidRank = response.data.findIndex((chunk) =>
     chunk.metadata?.path

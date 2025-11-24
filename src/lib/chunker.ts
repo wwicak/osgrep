@@ -15,6 +15,8 @@ const GRAMMAR_URLS: Record<string, string> = {
   tsx: "https://github.com/tree-sitter/tree-sitter-typescript/releases/latest/download/tree-sitter-tsx.wasm",
   python:
     "https://github.com/tree-sitter/tree-sitter-python/releases/latest/download/tree-sitter-python.wasm",
+  go:
+    "https://github.com/tree-sitter/tree-sitter-go/releases/latest/download/tree-sitter-go.wasm",
 };
 
 export interface Chunk {
@@ -146,6 +148,7 @@ export class TreeSitterChunker {
     else if (ext === ".tsx") lang = "tsx";
     else if (ext === ".py") lang = "python";
     else if (ext === ".js" || ext === ".jsx") lang = "tsx";
+    else if (ext === ".go") lang = "go";
     if (!lang) return [];
 
     const language = await this.getLanguage(lang);
@@ -201,6 +204,7 @@ export class TreeSitterChunker {
       if (text.includes("=>")) return true;
       if (text.includes("function ")) return true;
       if (text.includes("class ")) return true;
+      if (/(?:^|\n)\s*(?:export\s+)?const\s+[A-Z0-9_]+\s*=/.test(text)) return true;
       return false;
     };
 

@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Worker } from "node:worker_threads";
 import * as lancedb from "@lancedb/lancedb";
 import { v4 as uuidv4 } from "uuid";
 import type {
@@ -13,54 +12,18 @@ import type {
   Store,
   StoreFile,
   StoreInfo,
+  VectorRecord,
 } from "./store";
-
-type WorkerRequest =
-  | { id: string; text: string }
-  | { id: string; texts: string[] }
-  | { id: string; rerank: { query: string; documents: string[] } };
-
-const DB_PATH = path.join(os.homedir(), ".osgrep", "data");
-
-type VectorRecord = {
-  id: string;
-  path: string;
-  hash: string;
-  content: string;
-  start_line: number;
-  end_line: number;
-  vector: number[];
-  chunk_index?: number;
-  is_anchor?: boolean;
-} & Record<string, unknown>;
-
-import { type Chunk, TreeSitterChunker } from "./chunker";
-
-type ChunkWithContext = Chunk & {
-  context: string[];
-  chunkIndex?: number;
-  isAnchor?: boolean;
-};
-type PendingRequest = {
-  resolve: (value: unknown) => void;
-  reject: (reason: unknown) => void;
-  payload: WorkerRequest;
-  timeoutId?: NodeJS.Timeout;
-};
-
-import { LRUCache } from "./lru";
-import { argsortDesc, blendScores, normalizeScores } from "./simd";
+import { TreeSitterChunker } from "./chunker";
+import {
+  buildAnchorChunk,
+  ChunkWithContext,
+  formatChunkText,
+} from "./chunk-utils";
+import { WorkerManager } from "./worker-manager";
 
 const PROFILE_ENABLED =
   process.env.OSGREP_PROFILE === "1" || process.env.OSGREP_PROFILE === "true";
-const VECTOR_CACHE_MAX = Number.parseInt(
-  process.env.OSGREP_VECTOR_CACHE_MAX || "10000",
-  10,
-);
-const WORKER_TIMEOUT_MS = Number.parseInt(
-  process.env.OSGREP_WORKER_TIMEOUT_MS || "60000",
-  10,
-);
 
 export interface LocalStoreProfile {
   listFilesMs: number;
@@ -75,17 +38,12 @@ export interface LocalStoreProfile {
 
 export class LocalStore implements Store {
   private db: lancedb.Connection | null = null;
-  private worker!: Worker;
-  private vectorCache = new LRUCache<string, number[]>(VECTOR_CACHE_MAX);
-  private pendingRequests = new Map<string, PendingRequest>();
-  private restartInFlight: Promise<void> | null = null;
-  private isClosing = false;
-  private readonly MAX_WORKER_RSS = 6 * 1024 * 1024 * 1024; // 6GB upper bound, we restart before OOM
-  private embedQueue: Promise<void> = Promise.resolve();
+  // WorkerManager runs embedding/rerank work, serializes requests, and restarts on high RSS.
+  private workerManager = new WorkerManager();
   private chunker = new TreeSitterChunker();
   private readonly VECTOR_DIMENSIONS = 384;
   private readonly EMBED_BATCH_SIZE = 12; // Smaller batches to tame thermals/memory on large repos
-  private readonly WRITE_BATCH_SIZE = 50;
+  // Query prefix for embeddings: Represent this sentence for searching relevant passages
   private readonly queryPrefix =
     "Represent this sentence for searching relevant passages: ";
   private profile: LocalStoreProfile = {
@@ -100,111 +58,10 @@ export class LocalStore implements Store {
   };
 
   constructor() {
-    this.initializeWorker();
     // Initialize chunker in background (it might download WASMs)
     this.chunker
       .init()
       .catch((err) => console.error("Failed to init chunker:", err));
-  }
-
-  private getWorkerConfig(): { workerPath: string; execArgv: string[] } {
-    const tsWorkerPath = path.join(__dirname, "worker.ts");
-    const jsWorkerPath = path.join(__dirname, "worker.js");
-    const hasTsWorker = fs.existsSync(tsWorkerPath);
-    const hasJsWorker = fs.existsSync(jsWorkerPath);
-    const runningTs = path.extname(__filename) === ".ts";
-    const isDev = (runningTs && hasTsWorker) || (hasTsWorker && !hasJsWorker);
-
-    if (isDev) {
-      return { workerPath: tsWorkerPath, execArgv: ["-r", "ts-node/register"] };
-    }
-    return { workerPath: jsWorkerPath, execArgv: [] };
-  }
-
-  private initializeWorker() {
-    const { workerPath, execArgv } = this.getWorkerConfig();
-    this.worker = new Worker(workerPath, { execArgv });
-
-    this.worker.on("message", (message) => {
-      const { id, vector, vectors, scores, error, memory } = message;
-      const pending = this.pendingRequests.get(id);
-
-      if (pending) {
-        // Clear timeout if set
-        if (pending.timeoutId) {
-          clearTimeout(pending.timeoutId);
-        }
-
-        if (error) {
-          pending.reject(new Error(error));
-        } else if (vectors !== undefined) {
-          pending.resolve(vectors);
-        } else if (scores !== undefined) {
-          pending.resolve(scores);
-        } else {
-          pending.resolve(vector);
-        }
-        this.pendingRequests.delete(id);
-      }
-
-      if (memory && memory.rss > this.MAX_WORKER_RSS) {
-        console.warn(
-          `Worker memory usage high (${Math.round(memory.rss / 1024 / 1024)}MB). Restarting...`,
-        );
-        void this.restartWorker("memory limit exceeded");
-      }
-    });
-
-    // Handle worker errors
-    this.worker.on("error", (err) => {
-      console.error("Worker error:", err);
-      void this.restartWorker(`worker error: ${err.message}`);
-    });
-
-    // Handle worker exit
-    this.worker.on("exit", (code) => {
-      // Only restart on unexpected exits (not graceful shutdowns)
-      if (code !== 0 && !this.isClosing) {
-        console.error(`Worker exited with code ${code}`);
-        void this.restartWorker(`worker exit: code ${code}`);
-      }
-    });
-  }
-
-  private rejectAllPending(error: Error) {
-    for (const pending of this.pendingRequests.values()) {
-      if (pending.timeoutId) {
-        clearTimeout(pending.timeoutId);
-      }
-      pending.reject(error);
-    }
-    this.pendingRequests.clear();
-  }
-
-  private async restartWorker(reason?: string) {
-    if (this.restartInFlight) {
-      return this.restartInFlight;
-    }
-
-    // Reject all pending requests - fail fast, recover on next request
-    this.rejectAllPending(
-      new Error(`Worker restarting: ${reason || "unknown reason"}`),
-    );
-
-    this.restartInFlight = (async () => {
-      try {
-        await this.worker.terminate();
-      } catch (err) {
-        console.error("Failed to terminate worker cleanly:", err);
-      }
-      this.initializeWorker();
-      if (reason) {
-        console.warn(`Worker restarted due to ${reason}`);
-      }
-    })();
-
-    await this.restartInFlight;
-    this.restartInFlight = null;
   }
 
   private isNodeReadable(input: unknown): input is NodeJS.ReadableStream {
@@ -216,117 +73,13 @@ export class LocalStore implements Store {
     );
   }
 
-  private async enqueueEmbedding<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.embedQueue.then(async () => {
-      if (this.restartInFlight) {
-        await this.restartInFlight;
-      }
-      return fn();
-    }, fn);
-    // Ensure queue advances even if fn rejects
-    this.embedQueue = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-
-  private async sendToWorker<T>(
-    buildPayload: (id: string) => WorkerRequest,
-  ): Promise<T> {
-    if (this.restartInFlight) {
-      await this.restartInFlight;
-    }
-
-    return new Promise((resolve, reject) => {
-      const id = uuidv4();
-      const payload = buildPayload(id);
-
-      // Set up timeout
-      const timeoutId = setTimeout(() => {
-        const pending = this.pendingRequests.get(id);
-        if (pending) {
-          this.pendingRequests.delete(id);
-          reject(
-            new Error(`Worker request timed out after ${WORKER_TIMEOUT_MS}ms`),
-          );
-        }
-      }, WORKER_TIMEOUT_MS);
-
-      this.pendingRequests.set(id, {
-        resolve: resolve as (value: unknown) => void,
-        reject: reject as (reason: unknown) => void,
-        payload,
-        timeoutId,
-      });
-      this.worker.postMessage(payload);
-    });
-  }
-
-  private async getEmbeddings(texts: string[]): Promise<number[][]> {
-    const neededIndices: number[] = [];
-    const neededTexts: string[] = [];
-    const results: number[][] = new Array(texts.length);
-
-    // 1. Check Cache
-    for (let i = 0; i < texts.length; i++) {
-      const text = texts[i];
-      // Using full text as key for correctness. V8 handles string keys efficiently.
-      const cached = this.vectorCache.get(text);
-      if (cached !== undefined) {
-        results[i] = cached;
-      } else {
-        neededIndices.push(i);
-        neededTexts.push(text);
-      }
-    }
-
-    if (neededTexts.length === 0) {
-      return results; // All cached!
-    }
-
-    // 2. Embed only what's missing
-    const computedVectors = await this.enqueueEmbedding(() =>
-      this.sendToWorker<number[][]>((id) => ({ id, texts: neededTexts })),
-    );
-
-    // 3. Fill results and update cache
-    for (let i = 0; i < computedVectors.length; i++) {
-      const originalIndex = neededIndices[i];
-      const vector = computedVectors[i];
-      const text = neededTexts[i];
-
-      this.vectorCache.set(text, vector);
-      results[originalIndex] = vector;
-    }
-
-    return results;
-  }
-
-  private async getEmbedding(text: string): Promise<number[]> {
-    // Wrapper for single text to maintain compatibility where needed
-    const results = await this.getEmbeddings([text]);
-    return results[0];
-  }
-
-  private async rerankDocuments(
-    query: string,
-    documents: string[],
-  ): Promise<number[]> {
-    return this.enqueueEmbedding(() =>
-      this.sendToWorker<number[]>((id) => ({
-        id,
-        rerank: { query, documents },
-      })),
-    );
-  }
-
   private async getDb(): Promise<lancedb.Connection> {
     if (!this.db) {
-      if (!fs.existsSync(DB_PATH)) {
-        fs.mkdirSync(DB_PATH, { recursive: true });
+      const dbPath = path.join(os.homedir(), ".osgrep", "data");
+      if (!fs.existsSync(dbPath)) {
+        fs.mkdirSync(dbPath, { recursive: true });
       }
-      this.db = await lancedb.connect(DB_PATH);
+      this.db = await lancedb.connect(dbPath);
     }
     return this.db;
   }
@@ -334,67 +87,6 @@ export class LocalStore implements Store {
   private async getTable(storeId: string): Promise<lancedb.Table> {
     const db = await this.getDb();
     return await db.openTable(storeId);
-  }
-
-  private async fetchNeighborChunk(
-    table: lancedb.Table,
-    path: string,
-    chunkIndex: number,
-  ): Promise<VectorRecord | null> {
-    const safePath = path.replace(/'/g, "''");
-    try {
-      const res = (await table
-        .query()
-        .filter(`path = '${safePath}' AND chunk_index = ${chunkIndex}`)
-        .limit(1)
-        .toArray()) as VectorRecord[];
-      return res[0] ?? null;
-    } catch {
-      return null;
-    }
-  }
-
-  private async expandWithNeighbors(
-    table: lancedb.Table,
-    record: VectorRecord,
-  ): Promise<VectorRecord> {
-    const centerIndex =
-      typeof record.chunk_index === "number" ? record.chunk_index : null;
-    if (centerIndex === null || typeof record.path !== "string") return record;
-
-    const neighborIndices = [centerIndex - 1, centerIndex + 1].filter(
-      (i) => i >= 0,
-    );
-    const neighbors: VectorRecord[] = [];
-    for (const idx of neighborIndices) {
-      const neighbor = await this.fetchNeighborChunk(table, record.path, idx);
-      if (neighbor) neighbors.push(neighbor);
-    }
-
-    if (neighbors.length === 0) return record;
-
-    const ordered = [...neighbors, record].sort((a, b) => {
-      const ai = typeof a.chunk_index === "number" ? a.chunk_index : 0;
-      const bi = typeof b.chunk_index === "number" ? b.chunk_index : 0;
-      return ai - bi;
-    });
-
-    const combinedContent = ordered
-      .map((r) => String(r.content ?? ""))
-      .join("\n\n");
-    const startLine = Math.min(
-      ...ordered.map((r) => (r.start_line as number) ?? record.start_line ?? 0),
-    );
-    const endLine = Math.max(
-      ...ordered.map((r) => (r.end_line as number) ?? record.end_line ?? 0),
-    );
-
-    return {
-      ...record,
-      content: combinedContent,
-      start_line: startLine,
-      end_line: endLine,
-    };
   }
 
   private baseSchemaRow(): VectorRecord {
@@ -407,181 +99,68 @@ export class LocalStore implements Store {
       end_line: 0,
       chunk_index: 0,
       is_anchor: false,
+      context_prev: "",
+      context_next: "",
       vector: Array(this.VECTOR_DIMENSIONS).fill(0),
-    };
-  }
-
-  private formatChunkText(chunk: ChunkWithContext, filePath: string): string {
-    const breadcrumb = [...chunk.context];
-    const fileLabel = `File: ${filePath || "unknown"}`;
-    const hasFileLabel = breadcrumb.some(
-      (entry) => typeof entry === "string" && entry.startsWith("File: "),
-    );
-    if (!hasFileLabel) {
-      breadcrumb.unshift(fileLabel);
-    }
-    const header = breadcrumb.length > 0 ? breadcrumb.join(" > ") : fileLabel;
-    return `${header}\n---\n${chunk.content}`;
-  }
-
-  private extractTopComments(lines: string[]): string[] {
-    const comments: string[] = [];
-    let inBlock = false;
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (inBlock) {
-        comments.push(line);
-        if (trimmed.includes("*/")) inBlock = false;
-        continue;
-      }
-      if (trimmed === "") {
-        // allow blank lines at the top of the file
-        comments.push(line);
-        continue;
-      }
-      if (
-        trimmed.startsWith("//") ||
-        trimmed.startsWith("#!") ||
-        trimmed.startsWith("# ")
-      ) {
-        comments.push(line);
-        continue;
-      }
-      if (trimmed.startsWith("/*")) {
-        comments.push(line);
-        if (!trimmed.includes("*/")) inBlock = true;
-        continue;
-      }
-      break;
-    }
-    // Trim trailing blank lines from the captured comment block
-    while (comments.length > 0 && comments[comments.length - 1].trim() === "") {
-      comments.pop();
-    }
-    return comments;
-  }
-
-  private extractImports(lines: string[], limit = 200): string[] {
-    const modules: string[] = [];
-    for (const raw of lines.slice(0, limit)) {
-      const trimmed = raw.trim();
-      if (!trimmed) continue;
-      if (trimmed.startsWith("import ")) {
-        const fromMatch = trimmed.match(/from\s+["']([^"']+)["']/);
-        const sideEffect = trimmed.match(/^import\s+["']([^"']+)["']/);
-        const named = trimmed.match(/import\s+(?:\* as\s+)?([A-Za-z0-9_$]+)/);
-        if (fromMatch?.[1]) modules.push(fromMatch[1]);
-        else if (sideEffect?.[1]) modules.push(sideEffect[1]);
-        else if (named?.[1]) modules.push(named[1]);
-        continue;
-      }
-      const requireMatch = trimmed.match(/require\(\s*["']([^"']+)["']\s*\)/);
-      if (requireMatch?.[1]) {
-        modules.push(requireMatch[1]);
-      }
-    }
-    return Array.from(new Set(modules));
-  }
-
-  private extractExports(lines: string[], limit = 200): string[] {
-    const exports: string[] = [];
-    for (const raw of lines.slice(0, limit)) {
-      const trimmed = raw.trim();
-      if (!trimmed.startsWith("export") && !trimmed.includes("module.exports"))
-        continue;
-
-      const decl = trimmed.match(
-        /^export\s+(?:default\s+)?(class|function|const|let|var|interface|type|enum)\s+([A-Za-z0-9_$]+)/,
-      );
-      if (decl?.[2]) {
-        exports.push(decl[2]);
-        continue;
-      }
-
-      const brace = trimmed.match(/^export\s+\{([^}]+)\}/);
-      if (brace?.[1]) {
-        const names = brace[1]
-          .split(",")
-          .map((n) => n.trim())
-          .filter(Boolean);
-        exports.push(...names);
-        continue;
-      }
-
-      if (trimmed.startsWith("export default")) {
-        exports.push("default");
-      }
-
-      if (trimmed.includes("module.exports")) {
-        exports.push("module.exports");
-      }
-    }
-    return Array.from(new Set(exports));
-  }
-
-  private buildAnchorChunk(
-    filePath: string,
-    content: string,
-  ): Chunk & { context: string[]; chunkIndex: number; isAnchor: boolean } {
-    const lines = content.split("\n");
-    const topComments = this.extractTopComments(lines);
-    const imports = this.extractImports(lines);
-    const exports = this.extractExports(lines);
-
-    const preamble: string[] = [];
-    let nonBlank = 0;
-    let totalChars = 0;
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      preamble.push(line);
-      nonBlank += 1;
-      totalChars += line.length;
-      if (nonBlank >= 30 || totalChars >= 1200) break;
-    }
-
-    const sections: string[] = [];
-    sections.push(`File: ${filePath}`);
-    if (imports.length > 0) {
-      sections.push(`Imports: ${imports.join(", ")}`);
-    }
-    if (exports.length > 0) {
-      sections.push(`Exports: ${exports.join(", ")}`);
-    }
-    if (topComments.length > 0) {
-      sections.push(`Top comments:\n${topComments.join("\n")}`);
-    }
-    if (preamble.length > 0) {
-      sections.push(`Preamble:\n${preamble.join("\n")}`);
-    }
-    sections.push("---");
-    sections.push("(anchor)");
-
-    const anchorText = sections.join("\n\n");
-    const approxEndLine = Math.min(
-      lines.length,
-      Math.max(1, nonBlank || preamble.length || 5),
-    );
-
-    return {
-      content: anchorText,
-      startLine: 0,
-      endLine: approxEndLine,
-      type: "block",
-      context: [`File: ${filePath}`, "Anchor"],
-      chunkIndex: -1,
-      isAnchor: true,
     };
   }
 
   private async ensureTable(storeId: string): Promise<lancedb.Table> {
     const db = await this.getDb();
     try {
-      return await db.openTable(storeId);
-    } catch {
-      const table = await db.createTable(storeId, [this.baseSchemaRow()]);
-      await table.delete('id = "seed"');
-      return table;
+      const table = await db.openTable(storeId);
+      const schemaFields =
+        ((table as { schema?: { fields?: { name?: string }[] } }).schema
+          ?.fields || []).map((f) => f.name);
+      const missingFields = ["context_prev", "context_next"].filter(
+        (field) => !schemaFields.includes(field),
+      );
+
+      if (missingFields.length === 0) {
+        return table;
+      }
+
+      let existingRows: VectorRecord[] = [];
+      try {
+        existingRows = (await table.query().toArray()) as VectorRecord[];
+      } catch {
+        existingRows = [];
+      }
+
+      try {
+        await db.dropTable(storeId);
+      } catch {
+        // If drop fails, attempt recreate will throw below
+      }
+
+      const newTable = await db.createTable(storeId, [this.baseSchemaRow()]);
+      if (existingRows.length > 0) {
+        const migrated = existingRows.map((row) => ({
+          context_prev:
+            typeof row.context_prev === "string" ? row.context_prev : "",
+          context_next:
+            typeof row.context_next === "string" ? row.context_next : "",
+          ...row,
+        }));
+        await newTable.add(migrated);
+      }
+      await newTable.delete('id = "seed"');
+      return newTable;
+    } catch (err) {
+      try {
+        const table = await db.createTable(storeId, [this.baseSchemaRow()]);
+        await table.delete('id = "seed"');
+        return table;
+      } catch (createErr) {
+        // If the table already exists, open it instead of failing the flow
+        const message =
+          createErr instanceof Error ? createErr.message : String(createErr);
+        if (message.toLowerCase().includes("already exists")) {
+          const table = await db.openTable(storeId);
+          return table;
+        }
+        throw err;
+      }
     }
   }
 
@@ -620,7 +199,7 @@ export class LocalStore implements Store {
     storeId: string,
     file: File | ReadableStream | NodeJS.ReadableStream | string,
     options: IndexFileOptions,
-  ): Promise<void> {
+  ): Promise<VectorRecord[]> {
     const fileIndexStart = PROFILE_ENABLED ? process.hrtime.bigint() : null;
     let fileChunkMs = 0;
     let fileEmbedMs = 0;
@@ -651,7 +230,7 @@ export class LocalStore implements Store {
       } else if (file instanceof File) {
         content = await file.text();
       } else {
-        return;
+        return [];
       }
     }
 
@@ -681,14 +260,14 @@ export class LocalStore implements Store {
       fileChunkMs += Number(chunkEnd - chunkStart) / 1_000_000;
       this.profile.totalChunkCount += parsedChunks.length;
     }
-    const anchorChunk = this.buildAnchorChunk(
+    const anchorChunk = buildAnchorChunk(
       options.metadata?.path || "unknown",
       content,
     );
     const baseChunks = anchorChunk
       ? [anchorChunk, ...parsedChunks]
       : parsedChunks;
-    if (baseChunks.length === 0) return;
+    if (baseChunks.length === 0) return [];
 
     const chunks: ChunkWithContext[] = baseChunks.map((chunk, idx) => {
       const chunkWithContext = chunk as ChunkWithContext;
@@ -704,24 +283,22 @@ export class LocalStore implements Store {
               ? idx - 1
               : idx,
         isAnchor:
-          chunkWithContext.isAnchor === true ||
-          (anchorChunk ? idx === 0 : false),
+          chunkWithContext.isAnchor === true || (anchorChunk ? idx === 0 : false),
       };
     });
     this.profile.totalChunkCount += anchorChunk ? 1 : 0;
 
     const chunkTexts = chunks.map((chunk) =>
-      this.formatChunkText(chunk, options.metadata?.path || ""),
+      formatChunkText(chunk, options.metadata?.path || ""),
     );
 
     const BATCH_SIZE = this.EMBED_BATCH_SIZE;
-    const WRITE_BATCH_SIZE = this.WRITE_BATCH_SIZE;
     let pendingWrites: VectorRecord[] = [];
 
     for (let i = 0; i < chunkTexts.length; i += BATCH_SIZE) {
       const batchTexts = chunkTexts.slice(i, i + BATCH_SIZE);
       const embedStart = PROFILE_ENABLED ? process.hrtime.bigint() : null;
-      const batchVectors = await this.getEmbeddings(batchTexts);
+      const batchVectors = await this.workerManager.getEmbeddings(batchTexts);
       if (PROFILE_ENABLED && embedStart) {
         const embedEnd = process.hrtime.bigint();
         this.profile.totalEmbedTimeMs +=
@@ -733,41 +310,22 @@ export class LocalStore implements Store {
         const chunkIndex = i + j;
         const chunk = chunks[chunkIndex];
         const vector = batchVectors[j];
+        const prev = chunkTexts[chunkIndex - 1];
+        const next = chunkTexts[chunkIndex + 1];
 
         pendingWrites.push({
           id: uuidv4(),
           path: options.metadata?.path || "",
           hash: options.metadata?.hash || "",
           content: chunkTexts[chunkIndex],
+          context_prev: typeof prev === "string" ? prev : undefined,
+          context_next: typeof next === "string" ? next : undefined,
           start_line: chunk.startLine,
           end_line: chunk.endLine,
           chunk_index: chunk.chunkIndex,
           is_anchor: chunk.isAnchor === true,
           vector,
         });
-
-        if (pendingWrites.length >= WRITE_BATCH_SIZE) {
-          const writeStart = PROFILE_ENABLED ? process.hrtime.bigint() : null;
-          await table.add(pendingWrites);
-          if (PROFILE_ENABLED && writeStart) {
-            const writeEnd = process.hrtime.bigint();
-            this.profile.totalTableWriteMs +=
-              Number(writeEnd - writeStart) / 1_000_000;
-            fileWriteMs += Number(writeEnd - writeStart) / 1_000_000;
-          }
-          pendingWrites = [];
-        }
-      }
-    }
-
-    if (pendingWrites.length > 0) {
-      const writeStart = PROFILE_ENABLED ? process.hrtime.bigint() : null;
-      await table.add(pendingWrites);
-      if (PROFILE_ENABLED && writeStart) {
-        const writeEnd = process.hrtime.bigint();
-        this.profile.totalTableWriteMs +=
-          Number(writeEnd - writeStart) / 1_000_000;
-        fileWriteMs += Number(writeEnd - writeStart) / 1_000_000;
       }
     }
 
@@ -783,6 +341,21 @@ export class LocalStore implements Store {
           `deleteTime=${fileDeleteMs.toFixed(1)}ms writeTime=${fileWriteMs.toFixed(1)}ms total=${total.toFixed(1)}ms`,
       );
     }
+
+    return pendingWrites;
+  }
+
+  async insertBatch(storeId: string, records: VectorRecord[]): Promise<void> {
+    if (records.length === 0) return;
+
+    const table = await this.ensureTable(storeId);
+    const writeStart = PROFILE_ENABLED ? process.hrtime.bigint() : null;
+    await table.add(records);
+    if (PROFILE_ENABLED && writeStart) {
+      const writeEnd = process.hrtime.bigint();
+      this.profile.totalTableWriteMs +=
+        Number(writeEnd - writeStart) / 1_000_000;
+    }
   }
 
   async createFTSIndex(storeId: string): Promise<void> {
@@ -796,14 +369,14 @@ export class LocalStore implements Store {
 
   async createVectorIndex(storeId: string): Promise<void> {
     const table = await this.getTable(storeId);
-
+    
     // Guard against small tables - LanceDB IVF_PQ requires 256 rows to train
     // If we have fewer, flat search is faster anyway and we avoid crashes
     const rowCount = await table.countRows();
     if (rowCount < 256) {
       return;
     }
-
+    
     try {
       const vectorIndexOptions: Record<string, unknown> = { type: "ivf_flat" };
       await table.createIndex("vector", vectorIndexOptions);
@@ -840,13 +413,15 @@ export class LocalStore implements Store {
     }
 
     // 1. Setup
-    const queryVector = await this.getEmbedding(this.queryPrefix + query);
-    const finalLimit = top_k ?? 10;
-    const totalChunks = await table.countRows();
-    const candidateLimit = Math.min(
-      400,
-      Math.max(100, 2 * Math.sqrt(totalChunks)),
+    const queryVector = await this.workerManager.getEmbedding(
+      this.queryPrefix + query,
     );
+    const finalLimit = top_k ?? 10;
+
+    // Keep balanced pools so exact matches survive to rerank
+    const vectorLimit = 200;
+    const ftsLimit = 200;
+    const RERANK_CAP = 50;
 
     const allFilters = Array.isArray((_filters as { all?: unknown })?.all)
       ? ((_filters as { all?: unknown }).all as Record<string, unknown>[])
@@ -857,14 +432,13 @@ export class LocalStore implements Store {
     const pathPrefix =
       typeof pathFilterEntry?.value === "string" ? pathFilterEntry.value : "";
 
-    // Build LanceDB WHERE clause for path filtering (applied BEFORE limit)
     const whereClause = pathPrefix
       ? `path LIKE '${pathPrefix.replace(/'/g, "''")}%'`
       : undefined;
 
-    // 2. Parallel Retrieval: Vector + FTS
-    const vectorSearchQuery = table.search(queryVector).limit(candidateLimit);
-    const ftsSearchQuery = table.search(query).limit(candidateLimit);
+    // 2. Parallel Retrieval
+    const vectorSearchQuery = table.search(queryVector).limit(vectorLimit);
+    const ftsSearchQuery = table.search(query).limit(ftsLimit);
 
     if (whereClause) {
       vectorSearchQuery.where(whereClause);
@@ -876,17 +450,15 @@ export class LocalStore implements Store {
       ftsSearchQuery.toArray().catch(() => []) as Promise<VectorRecord[]>,
     ]);
 
-    // 3. RRF Fusion (Combine the two lists)
-    const k = 60; // RRF Constant
+    // 3. RRF Fusion
+    const k = 20; // balances FTS and vector without overpowering rerank
     const rrfScores = new Map<string, number>();
     const contentMap = new Map<string, VectorRecord>();
 
     const fuse = (results: VectorRecord[]) => {
       results.forEach((r, i) => {
-        // Use path+start_line as unique key since ID might be unstable across re-indexes
         const key = `${r.path}:${r.start_line}`;
         if (!contentMap.has(key)) contentMap.set(key, r);
-
         const rank = i + 1;
         const score = 1 / (k + rank);
         rrfScores.set(key, (rrfScores.get(key) || 0) + score);
@@ -896,74 +468,106 @@ export class LocalStore implements Store {
     fuse(vectorResults);
     fuse(ftsResults);
 
-    // Sort by RRF Score to get the "Best of Both Worlds" candidates
     const candidates = Array.from(rrfScores.keys())
       .sort((a, b) => (rrfScores.get(b) || 0) - (rrfScores.get(a) || 0))
-      .slice(0, candidateLimit) // Take top 50 combined
       .map((key) => contentMap.get(key))
-      .filter((record): record is VectorRecord => Boolean(record));
+      .filter((record): record is VectorRecord => Boolean(record))
+      .slice(0, vectorLimit + ftsLimit);
 
     if (candidates.length === 0) {
       return { data: [] };
     }
 
-    // 4. Neural Reranking (The Brains) + SIMD-optimized score blending
-    // Extract RRF scores in candidate order and normalize using SIMD
-    const candidateRrfScores = candidates.map((r) => {
-      const key = `${r.path}:${r.start_line}`;
-      return rrfScores.get(key) || 0;
-    });
-    const normalizedRrfScores = normalizeScores(candidateRrfScores);
+    const rerankCandidates = candidates.slice(0, RERANK_CAP);
 
-    let finalResults = candidates.map((r, i) => ({
-      record: r,
-      score: normalizedRrfScores[i],
-      rrfScore: normalizedRrfScores[i],
-      rerankScore: 0,
-    }));
+    // 4. Neural Reranking & Brute-Force Boosting
+    const rrfValues = Array.from(rrfScores.values());
+    const maxRrf = rrfValues.length > 0 ? Math.max(...rrfValues) : 0;
+    const normalizeRrf = (key: string) =>
+      maxRrf > 0 ? (rrfScores.get(key) || 0) / maxRrf : 0;
+
+    const lowerQuery = query.toLowerCase().trim();
+    const queryParts = lowerQuery
+      .split(/[\s/\\_.-]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 2);
+    const isCodeQuery =
+      /[A-Z_]|`|\(|\)|\//.test(query) || queryParts.some((p) => p.includes("_"));
+
+    let finalResults = rerankCandidates.map((r) => {
+      const key = `${r.path}:${r.start_line}`;
+      const rrfScore = normalizeRrf(key);
+      return { record: r, score: rrfScore, rrfScore, rerankScore: 0 };
+    });
 
     try {
-      const docs = candidates.map((r) => String(r.content ?? ""));
-      const rerankScores = await this.rerankDocuments(query, docs);
+      const docs = rerankCandidates.map((r) => String(r.content ?? ""));
+      const scores = await this.workerManager.rerank(query, docs);
 
-      // SIMD-optimized batch score blending (70% neural + 30% RRF)
-      const blendedScores = blendScores(
-        rerankScores,
-        normalizedRrfScores,
-        0.7,
-        0.3,
-      );
+      finalResults = rerankCandidates.map((r, i) => {
+        const key = `${r.path}:${r.start_line}`;
+        const rrfScore = normalizeRrf(key);
+        const rerankScore = scores[i] ?? 0;
+        const rerankWeight = isCodeQuery ? 0.55 : 0.6;
+        const rrfWeight = 1 - rerankWeight;
+        let blendedScore = rerankWeight * rerankScore + rrfWeight * rrfScore;
 
-      finalResults = candidates.map((r, i) => ({
-        record: r,
-        score: blendedScores[i],
-        rrfScore: normalizedRrfScores[i],
-        rerankScore: rerankScores[i] ?? 0,
-      }));
+        const content = String(r.content ?? "").toLowerCase();
+        const path = String(r.path ?? "").toLowerCase();
+
+        // Boost 1: exact substring
+        if (lowerQuery.length > 2 && content.includes(lowerQuery)) {
+          blendedScore += 0.25;
+        }
+
+        // Boost 2: anchor/definition
+        if (r.is_anchor === true) {
+          blendedScore += 0.12;
+        }
+
+        // Boost 3: path token match
+        if (queryParts.some((part) => path.includes(part))) {
+          blendedScore += 0.05;
+        }
+
+        // Boost 4: token overlap (light)
+        const contentTokens = new Set(
+          content
+            .split(/[^a-z0-9_]+/)
+            .map((t) => t.trim())
+            .filter((t) => t.length > 2),
+        );
+        let overlap = 0;
+        if (queryParts.length > 0 && contentTokens.size > 0) {
+          for (const tok of queryParts) {
+            if (contentTokens.has(tok)) overlap += 1;
+          }
+          if (overlap > 0) {
+            blendedScore += Math.min(0.08, overlap * 0.02);
+          }
+        }
+
+        return { record: r, score: blendedScore, rrfScore, rerankScore };
+      });
     } catch (e) {
-      console.warn(
-        "Reranker failed; falling back to blended RRF-only order:",
-        e,
-      );
+      console.warn("Reranker failed; falling back to RRF:", e);
     }
 
-    // 5. Final Sort & Format - use SIMD-optimized argsort for large result sets
-    const sortedIndices = argsortDesc(finalResults.map((r) => r.score));
-    finalResults = sortedIndices.map((i) => finalResults[i]);
+    // 5. Final Sort
+    finalResults.sort((a, b) => b.score - a.score);
     const limited = finalResults.slice(0, finalLimit);
 
-    const expanded = await Promise.all(
-      limited.map(async ({ record, score }) => {
-        const withNeighbors = await this.expandWithNeighbors(table, record);
-        return { record: withNeighbors, score };
-      }),
-    );
-    const chunks: ChunkType[] = expanded.map(({ record, score }) => {
+    const chunks: ChunkType[] = limited.map(({ record, score }) => {
+      const contextPrev =
+        typeof record.context_prev === "string" ? record.context_prev : "";
+      const contextNext =
+        typeof record.context_next === "string" ? record.context_next : "";
+      const fullText = `${contextPrev}${record.content ?? ""}${contextNext}`;
       const startLine = (record.start_line as number) ?? 0;
       const endLine = (record.end_line as number) ?? startLine;
       return {
         type: "text",
-        text: record.content as string,
+        text: fullText,
         score,
         metadata: {
           path: record.path as string,
@@ -972,13 +576,14 @@ export class LocalStore implements Store {
         },
         generated_metadata: {
           start_line: startLine,
-          num_lines: endLine - startLine,
+          num_lines: Math.max(1, endLine - startLine + 1),
         },
       };
     });
 
     return { data: chunks };
   }
+
   async retrieve(storeId: string): Promise<unknown> {
     const table = await this.getTable(storeId);
     const tableInfo = table as { info?: () => unknown };
@@ -1015,16 +620,8 @@ export class LocalStore implements Store {
   }
 
   async close(): Promise<void> {
-    // Mark as closing to suppress error messages
-    this.isClosing = true;
-
-    // Clean shutdown: ask worker to exit gracefully, then terminate if needed
     try {
-      // Send shutdown message
-      this.worker.postMessage({ type: "shutdown" });
-      // Give it a brief moment to exit cleanly
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      await this.worker.terminate();
+      await this.workerManager.close();
     } catch (err) {
       // Silent cleanup - worker may have already exited
     }

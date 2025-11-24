@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TreeSitterChunker } from "../src/lib/chunker";
-import { LocalStore } from "../src/lib/local-store";
+import { buildAnchorChunk, formatChunkText } from "../src/lib/chunk-utils";
 
 describe("TreeSitterChunker fallback and splitting", () => {
   it("splits large text into overlapping chunks with preserved ordering", async () => {
@@ -38,16 +38,13 @@ describe("TreeSitterChunker fallback and splitting", () => {
 });
 
 describe("LocalStore chunk formatting helpers", () => {
-  const makeLocalStoreProxy = () => Object.create(LocalStore.prototype) as any;
-
   it("buildAnchorChunk includes imports, exports, and top comments", () => {
-    const store = makeLocalStoreProxy();
     const content = `// top comment
 import fs from "fs";
 export const value = 1;
 function example() {}`;
 
-    const anchor = store.buildAnchorChunk("src/example.ts", content);
+    const anchor = buildAnchorChunk("src/example.ts", content);
 
     expect(anchor.isAnchor).toBe(true);
     expect(anchor.context).toContain("Anchor");
@@ -57,11 +54,7 @@ function example() {}`;
   });
 
   it("formatChunkText adds file breadcrumb when missing", () => {
-    const store = makeLocalStoreProxy();
-    const formatted = store.formatChunkText(
-      { content: "code", context: [] },
-      "/repo/path/file.ts",
-    );
+    const formatted = formatChunkText({ content: "code", context: [] } as any, "/repo/path/file.ts");
     expect(formatted.startsWith("File: /repo/path/file.ts")).toBe(true);
     expect(formatted).toContain("---");
   });

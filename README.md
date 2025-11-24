@@ -84,7 +84,7 @@ osgrep "user validation" --compact
 
 Manually indexes the repository. Useful if you want to pre-warm the cache or if you've made massive changes outside of the editor.
 
-- Respects `.gitignore` and `.osgrepignore`.
+- Respects `.gitignore` and `.osgrepignore` (see [Configuration](#ignoring-files) section).
 - **Smart Indexing:** Only embeds code and config files. Skips binaries, lockfiles, and minified assets.
 - **Adaptive Throttling:** Monitors your RAM and CPU usage. If your system gets hot, indexing slows down automatically.
 
@@ -160,6 +160,16 @@ osgrep "helper functions"
 
 Stores are isolated automatically — no manual `--store` flags needed!
 
+### Ignoring Files
+
+osgrep respects both `.gitignore` and `.osgrepignore` files when indexing. Create a `.osgrepignore` file in your repository root to exclude additional files or patterns from indexing.
+
+**`.osgrepignore` syntax:**
+- Uses the same pattern syntax as `.gitignore`
+- Patterns are relative to the repository root
+- Supports glob patterns, negation (`!`), and directory patterns (`/`)
+
+
 ### Manual Store Management
 
   - **View all stores:** `osgrep list`
@@ -184,8 +194,20 @@ pnpm format       # biome check
   - **Weird results?** Run `osgrep doctor` to verify models.
   - **Need a fresh start?** Delete `~/.osgrep/data` and re-index.
 
+## Attribution
+
+osgrep is built upon the foundation of [mgrep](https://github.com/mixedbread-ai/mgrep) by MixedBread. While approximately 90% of the current codebase has been rewritten or substantially modified to enable fully local operation, we acknowledge and appreciate the original architectural concepts and design decisions that informed this work.
+
+Key transformations in osgrep include:
+- Complete transition to local-only embeddings (no remote APIs)
+- New local storage architecture with LanceDB
+- Enhanced chunking, indexing, and watch mode capabilities
+- Extensive tooling for benchmarking and evaluation
+
+See the [NOTICE](NOTICE) file for detailed attribution information.
+
 ## License
 
 Licensed under the Apache License, Version 2.0.  
-See [Apache-2.0](https://opensource.org/licenses/Apache-2.0) for details.
+See [LICENSE](LICENSE) and [Apache-2.0](https://opensource.org/licenses/Apache-2.0) for details.
 

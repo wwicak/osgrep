@@ -28,7 +28,11 @@ export interface FileSystem {
   isIgnored(filePath: string, root: string): boolean;
 
   /**
-   * Loads the osgrepignore file for a directory
+   * Loads the .osgrepignore file for a directory.
+   * 
+   * The .osgrepignore file uses the same pattern syntax as .gitignore and allows
+   * you to exclude additional files or patterns from indexing beyond what's in
+   * .gitignore. Patterns are checked before .gitignore patterns.
    */
   loadOsgrepignore(dirRoot: string): void;
 }
@@ -153,6 +157,15 @@ export class NodeFileSystem implements FileSystem {
     return false;
   }
 
+  /**
+   * Loads the .osgrepignore file for a directory.
+   * 
+   * The .osgrepignore file uses the same pattern syntax as .gitignore and allows
+   * you to exclude additional files or patterns from indexing beyond what's in
+   * .gitignore. Patterns are checked before .gitignore patterns.
+   * 
+   * @param dirRoot The root directory to load .osgrepignore from
+   */
   loadOsgrepignore(dirRoot: string): void {
     const ignoreFile = path.join(dirRoot, ".osgrepignore");
     if (fs.existsSync(ignoreFile)) {

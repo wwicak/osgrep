@@ -64,13 +64,15 @@ async function runSearchWithFakeStore({
   const fakeStore: any = {
     queryPrefix: "prefix ",
     getTable: vi.fn(async () => table),
-    getEmbedding: vi.fn(async () => [0]),
-    rerankDocuments: rerankError
-      ? vi.fn(async () => {
-          throw new Error("rerank failed");
-        })
-      : vi.fn(async () => rerankScores),
-    expandWithNeighbors: vi.fn(async (_table, record) => record),
+    workerManager: {
+      getEmbedding: vi.fn(async () => [0]),
+      rerank: rerankError
+        ? vi.fn(async () => {
+            throw new Error("rerank failed");
+          })
+        : vi.fn(async () => rerankScores),
+    },
+    batchExpandWithNeighbors: vi.fn(async (_table, records) => records),
   };
 
   const searchFn = LocalStore.prototype.search;
@@ -84,7 +86,8 @@ async function runSearchWithFakeStore({
   );
 }
 
-describe("LocalStore.search fusion", () => {
+// Unit-level fusion test: uses fake tables to exercise scoring without LanceDB
+describe("LocalStore.search fusion (unit)", () => {
   it("orders by blended rerank scores when available", async () => {
     const table = buildTable({
       vectorResults: [

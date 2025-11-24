@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { extname } from "node:path";
 import pLimit from "p-limit";
 import type { FileSystem } from "./lib/file";
-import type { Store } from "./lib/store";
+import type { Store, VectorRecord } from "./lib/store";
 import type {
   InitialSyncProgress,
   InitialSyncResult,
@@ -81,6 +81,11 @@ interface IndexingProfile {
   processed: number;
   indexed: number;
 }
+
+type IndexFileResult = {
+  records: VectorRecord[];
+  indexed: boolean;
+};
 
 function now(): bigint {
   return process.hrtime.bigint();
@@ -256,7 +261,8 @@ export async function indexFile(
   profile?: IndexingProfile,
   preComputedBuffer?: Buffer,
   preComputedHash?: string,
-): Promise<boolean> {
+  forceIndex?: boolean,
+): Promise<IndexFileResult> {
   const indexStart = PROFILE_ENABLED ? now() : null;
   let buffer: Buffer;
   let hash: string;
@@ -267,17 +273,17 @@ export async function indexFile(
   } else {
     buffer = await fs.promises.readFile(filePath);
     if (buffer.length === 0) {
-      return false;
+      return { records: [], indexed: false };
     }
     hash = computeBufferHash(buffer);
   }
 
   const contentString = buffer.toString("utf-8");
 
-  if (metaStore) {
+  if (!forceIndex && metaStore) {
     const cachedHash = metaStore.get(filePath);
     if (cachedHash === hash) {
-      return false;
+      return { records: [], indexed: false };
     }
   }
 
@@ -291,26 +297,31 @@ export async function indexFile(
     content: contentString,
   };
 
+  let records: VectorRecord[] = [];
+  let indexed = false;
+
   try {
-    await store.indexFile(storeId, contentString, options);
+    records = await store.indexFile(storeId, contentString, options);
+    indexed = true;
   } catch (_err) {
     // Fallback for weird encodings
-    await store.indexFile(
+    records = await store.indexFile(
       storeId,
       new File([new Uint8Array(buffer)], fileName, { type: "text/plain" }),
       options,
     );
+    indexed = true;
   }
 
-  if (metaStore) {
+  if (indexed && metaStore) {
     metaStore.set(filePath, hash);
   }
 
-  if (PROFILE_ENABLED && indexStart && profile) {
+  if (indexed && PROFILE_ENABLED && indexStart && profile) {
     profile.sections.index = (profile.sections.index ?? 0) + toMs(indexStart);
   }
 
-  return true;
+  return { records, indexed };
 }
 
 export async function initialSync(
@@ -377,11 +388,11 @@ export async function initialSync(
 
   // 2. Walk file system and apply the VELVET ROPE filter
   const fileWalkStart = PROFILE_ENABLED ? now() : null;
-
+  
   // Files on disk that are not gitignored.
   const allFiles = Array.from(fileSystem.getFiles(repoRoot));
   const aliveFiles = allFiles.filter(
-    (filePath) => !fileSystem.isIgnored(filePath, repoRoot),
+    (filePath) => !fileSystem.isIgnored(filePath, repoRoot)
   );
 
   if (PROFILE_ENABLED && fileWalkStart && profile) {
@@ -432,6 +443,16 @@ export async function initialSync(
   const total = repoFiles.length;
   let processed = 0;
   let indexed = 0;
+  let writeBuffer: VectorRecord[] = [];
+
+  const flushWriteBuffer = async (force = false) => {
+    if (dryRun) return;
+    if (writeBuffer.length === 0) return;
+    if (!force && writeBuffer.length < 500) return;
+    const toWrite = writeBuffer;
+    writeBuffer = [];
+    await store.insertBatch(storeId, toWrite);
+  };
 
   if (PROFILE_ENABLED && profile) {
     profile.processed = total;
@@ -478,7 +499,7 @@ export async function initialSync(
             if (dryRun && shouldIndex) {
               indexed += 1;
             } else if (shouldIndex) {
-              const didIndex = await indexFile(
+              const { records, indexed: didIndex } = await indexFile(
                 store,
                 storeId,
                 filePath,
@@ -487,9 +508,13 @@ export async function initialSync(
                 profile,
                 buffer,
                 hash,
+                storeIsEmpty,
               );
               if (didIndex) {
                 indexed += 1;
+                if (records.length > 0) {
+                  writeBuffer.push(...records);
+                }
 
                 // Periodic meta save
                 if (metaStore && !SKIP_META_SAVE && indexed % 25 === 0) {
@@ -515,6 +540,8 @@ export async function initialSync(
       ),
     );
 
+    await flushWriteBuffer();
+
     // Adjust concurrency based on batch performance.
     const batchDuration = Date.now() - batchStart;
     const timePerFile = batchDuration / batch.length;
@@ -522,7 +549,7 @@ export async function initialSync(
 
     // Case 1: Getting too hot (Memory spike or very slow processing)
     if (memUsageMB > 1500) {
-      // If RSS > 1.5GB, clamp down hard and sleep
+    // If RSS > 1.5GB, clamp down hard and sleep
       currentConcurrency = Math.max(MIN_CONCURRENCY, currentConcurrency - 2);
       // Force a pause to let GC run/system breathe
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -536,6 +563,8 @@ export async function initialSync(
       currentConcurrency++;
     }
   }
+
+  await flushWriteBuffer(true);
 
   if (PROFILE_ENABLED && profile) {
     profile.processed = processed;
@@ -619,21 +648,38 @@ export async function writeServerLock(
   port: number,
   pid: number,
   cwd = process.cwd(),
+  authToken?: string,
 ): Promise<void> {
   const lockPath = getServerLockPath(cwd);
   await fs.promises.mkdir(path.dirname(lockPath), { recursive: true });
-  await fs.promises.writeFile(lockPath, JSON.stringify({ port, pid }), "utf-8");
+  await fs.promises.writeFile(
+    lockPath,
+    JSON.stringify(
+      { port, pid, authToken },
+      null,
+      2,
+    ),
+    "utf-8",
+  );
 }
 
 export async function readServerLock(
   cwd = process.cwd(),
-): Promise<{ port: number; pid: number } | null> {
+): Promise<{ port: number; pid: number; authToken?: string } | null> {
   const lockPath = getServerLockPath(cwd);
   try {
     const content = await fs.promises.readFile(lockPath, "utf-8");
     const data = JSON.parse(content);
-    if (data && typeof data.port === "number" && typeof data.pid === "number") {
-      return { port: data.port, pid: data.pid };
+    if (
+      data &&
+      typeof data.port === "number" &&
+      typeof data.pid === "number"
+    ) {
+      return {
+        port: data.port,
+        pid: data.pid,
+        authToken: typeof data.authToken === "string" ? data.authToken : undefined,
+      };
     }
   } catch (_err) {
     // Missing or malformed lock file -> treat as absent
@@ -641,7 +687,9 @@ export async function readServerLock(
   return null;
 }
 
-export async function clearServerLock(cwd = process.cwd()): Promise<void> {
+export async function clearServerLock(
+  cwd = process.cwd(),
+): Promise<void> {
   const lockPath = getServerLockPath(cwd);
   try {
     await fs.promises.unlink(lockPath);
