@@ -1,0 +1,62 @@
+[workspace]
+resolver = "2"
+members = [
+    "native",      # Node.js addon (backward compat)
+    "cli",         # Native CLI binary
+]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/Ryandonofrio3/osgrep"
+
+[workspace.dependencies]
+# SIMD and vector operations
+rayon = "1.10"
+
+# Embeddings (candle)
+candle-core = "0.8"
+candle-nn = "0.8"
+candle-transformers = "0.8"
+tokenizers = "0.20"
+hf-hub = "0.3"
+
+# Storage
+rusqlite = { version = "0.32", features = ["bundled", "vtab", "functions"] }
+sqlite-vec = "0.1.7-alpha.2"
+
+# Tree-sitter for code chunking
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23"
+tree-sitter-java = "0.23"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+indicatif = "0.17"
+console = "0.15"
+
+# File watching
+notify = "6.1"
+ignore = "0.4"
+walkdir = "2.5"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+anyhow = "1.0"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = true
+panic = "abort"
