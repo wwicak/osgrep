@@ -62,9 +62,13 @@ enum Commands {
         #[arg(short, long)]
         path: Option<String>,
 
-        /// Output JSON (for Claude Code integration)
+        /// Output JSON
         #[arg(long)]
         json: bool,
+
+        /// Output TOON (Token-Oriented Object Notation) - most efficient for LLMs
+        #[arg(long)]
+        toon: bool,
     },
 
     /// List indexed stores
@@ -81,8 +85,8 @@ fn main() -> Result<()> {
         Commands::Index { path, name, watch } => {
             cmd_index(path, name, watch)
         }
-        Commands::Search { query, name, top_k, path, json } => {
-            cmd_search(query, name, top_k, path, json)
+        Commands::Search { query, name, top_k, path, json, toon } => {
+            cmd_search(query, name, top_k, path, json, toon)
         }
         Commands::List => {
             cmd_list()
@@ -161,7 +165,7 @@ fn cmd_index(path: PathBuf, name: Option<String>, watch: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_search(query: String, name: Option<String>, top_k: usize, path_filter: Option<String>, json_output: bool) -> Result<()> {
+fn cmd_search(query: String, name: Option<String>, top_k: usize, path_filter: Option<String>, json_output: bool, toon_output: bool) -> Result<()> {
     let store_name = name.unwrap_or_else(|| "default".to_string());
     let db_path = get_db_path()?;
 
@@ -178,8 +182,31 @@ fn cmd_search(query: String, name: Option<String>, top_k: usize, path_filter: Op
     // Search
     let results = store::search(&db_path, &store_name, &query_vec, top_k, path_filter.as_deref())?;
 
+    // TOON output - Token-Oriented Object Notation (most efficient for LLMs)
+    if toon_output {
+        if results.is_empty() {
+            println!("results[0]{{path,score,lines,content}}:");
+            return Ok(());
+        }
+        println!("results[{}]{{path,score,lines,content}}:", results.len());
+        for r in &results {
+            // Escape commas and newlines in content for TOON format
+            let content_escaped = r.content
+                .lines()
+                .take(3)
+                .collect::<Vec<_>>()
+                .join(" ")
+                .replace(',', "\\,")
+                .chars()
+                .take(200)
+                .collect::<String>();
+            println!("  {},{:.2},{}-{},{}", r.path, r.score, r.start_line, r.end_line, content_escaped);
+        }
+        return Ok(());
+    }
+
+    // JSON output
     if json_output {
-        // JSON output for Claude Code
         let json_results: Vec<serde_json::Value> = results.iter().map(|r| {
             serde_json::json!({
                 "path": r.path,
@@ -198,7 +225,7 @@ fn cmd_search(query: String, name: Option<String>, top_k: usize, path_filter: Op
         return Ok(());
     }
 
-    // Display results
+    // Display results (human-readable)
     for (i, result) in results.iter().enumerate() {
         println!(
             "\n{} {} (score: {:.3})",

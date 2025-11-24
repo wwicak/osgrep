@@ -15,19 +15,19 @@ Use `grep` only for **exact string matches** when osgrep doesn't find results.
 
 ## How to use
 
-**Always use `--json` flag.** Results are fast (<50ms with hot index).
+**Always use `--toon` flag.** TOON (Token-Oriented Object Notation) uses ~40% fewer tokens than JSON.
 
 ### Basic Search
 
 ```bash
-osgrep search --json "How are user authentication tokens validated?"
-osgrep search --json "Where do we handle retries or backoff?"
+osgrep search --toon "How are user authentication tokens validated?"
+osgrep search --toon "Where do we handle retries or backoff?"
 ```
 
 ### Scoped Search
 
 ```bash
-osgrep search --json "auth middleware" --path src/api
+osgrep search --toon "auth middleware" --path src/api
 ```
 
 ### First-time Setup
@@ -42,15 +42,29 @@ osgrep index
 
 | Flag | Description |
 |------|-------------|
-| `--json` | **Required.** JSON output for parsing |
+| `--toon` | **Recommended.** TOON output (40% fewer tokens than JSON) |
+| `--json` | JSON output (fallback) |
 | `-k <n>` | Max results (default: 10) |
 | `--path <prefix>` | Filter by path prefix |
 | `--name <store>` | Use specific store name |
 
+### TOON Output Format
+
+```
+results[3]{path,score,lines,content}:
+  src/auth.rs,0.92,45-78,fn authenticate() { ... }
+  src/user.rs,0.85,12-34,fn validate_user() { ... }
+  src/login.rs,0.81,100-120,fn login() { ... }
+```
+
+Parse by:
+1. First line: `results[N]{fields}:` - N = result count, fields = column names
+2. Following lines: CSV-like rows with 2-space indent
+
 ### Strategy
 
-1. Run `osgrep search --json "<question>"`.
-2. Parse JSON results: `[{path, score, start_line, end_line, content}]`
+1. Run `osgrep search --toon "<question>"`.
+2. Parse TOON header for result count and fields.
 3. Use `Read` only if you need more context from a specific file.
 4. Increase `-k` if results seem incomplete.
 
@@ -60,6 +74,7 @@ osgrep index
 - **Native embeddings**: Candle ML (Metal GPU on Apple Silicon)
 - **SQLite-Vec**: Lightweight vector storage
 - **Hot index**: Sub-50ms searches after first index
+- **TOON output**: 40% fewer tokens than JSON
 
 ## Keywords
-semantic search, code search, local search, grep alternative, find code, explore codebase, understand code, search by meaning, SIMD, native, fast
+semantic search, code search, local search, grep alternative, find code, explore codebase, understand code, search by meaning, SIMD, native, fast, TOON
