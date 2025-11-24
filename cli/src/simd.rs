@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 /// Get the detected SIMD capability level
+#[allow(clippy::needless_return)]
 pub fn get_level() -> &'static str {
     #[cfg(target_arch = "x86_64")]
     {
@@ -22,7 +23,7 @@ pub fn get_level() -> &'static str {
     }
     #[cfg(target_arch = "aarch64")]
     {
-        return "NEON (4 floats/cycle)";
+        "NEON (4 floats/cycle)"
     }
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
