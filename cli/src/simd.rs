@@ -18,12 +18,16 @@ pub fn get_level() -> &'static str {
         if is_x86_feature_detected!("sse4.1") {
             return "SSE4.1 (4 floats/cycle)";
         }
+        return "Scalar";
     }
     #[cfg(target_arch = "aarch64")]
     {
         return "NEON (4 floats/cycle)";
     }
-    "Scalar"
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        "Scalar"
+    }
 }
 
 /// Compute dot product of two vectors
