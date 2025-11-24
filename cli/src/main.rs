@@ -61,6 +61,10 @@ enum Commands {
         /// Filter by path prefix
         #[arg(short, long)]
         path: Option<String>,
+
+        /// Output JSON (for Claude Code integration)
+        #[arg(long)]
+        json: bool,
     },
 
     /// List indexed stores
@@ -77,8 +81,8 @@ fn main() -> Result<()> {
         Commands::Index { path, name, watch } => {
             cmd_index(path, name, watch)
         }
-        Commands::Search { query, name, top_k, path } => {
-            cmd_search(query, name, top_k, path)
+        Commands::Search { query, name, top_k, path, json } => {
+            cmd_search(query, name, top_k, path, json)
         }
         Commands::List => {
             cmd_list()
@@ -157,7 +161,7 @@ fn cmd_index(path: PathBuf, name: Option<String>, watch: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_search(query: String, name: Option<String>, top_k: usize, path_filter: Option<String>) -> Result<()> {
+fn cmd_search(query: String, name: Option<String>, top_k: usize, path_filter: Option<String>, json_output: bool) -> Result<()> {
     let store_name = name.unwrap_or_else(|| "default".to_string());
     let db_path = get_db_path()?;
 
@@ -173,6 +177,21 @@ fn cmd_search(query: String, name: Option<String>, top_k: usize, path_filter: Op
 
     // Search
     let results = store::search(&db_path, &store_name, &query_vec, top_k, path_filter.as_deref())?;
+
+    if json_output {
+        // JSON output for Claude Code
+        let json_results: Vec<serde_json::Value> = results.iter().map(|r| {
+            serde_json::json!({
+                "path": r.path,
+                "score": r.score,
+                "start_line": r.start_line,
+                "end_line": r.end_line,
+                "content": r.content
+            })
+        }).collect();
+        println!("{}", serde_json::to_string(&json_results)?);
+        return Ok(());
+    }
 
     if results.is_empty() {
         println!("{} No results found", style("!").yellow());
