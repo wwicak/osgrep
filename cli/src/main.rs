@@ -45,6 +45,10 @@ enum Commands {
         /// Watch for file changes
         #[arg(short, long)]
         watch: bool,
+
+        /// Number of parallel jobs (default: 2, use 1 for low-memory systems)
+        #[arg(short, long, default_value = "2")]
+        jobs: usize,
     },
 
     /// Search indexed code
@@ -84,7 +88,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Index { path, name, watch } => cmd_index(path, name, watch),
+        Commands::Index {
+            path,
+            name,
+            watch,
+            jobs,
+        } => cmd_index(path, name, watch, jobs),
         Commands::Search {
             query,
             name,
@@ -98,7 +107,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn cmd_index(path: PathBuf, name: Option<String>, watch: bool) -> Result<()> {
+fn cmd_index(path: PathBuf, name: Option<String>, watch: bool, jobs: usize) -> Result<()> {
     let path = path.canonicalize().context("Invalid path")?;
     let store_name = name.unwrap_or_else(|| {
         path.file_name()
@@ -138,15 +147,24 @@ fn cmd_index(path: PathBuf, name: Option<String>, watch: bool) -> Result<()> {
             .progress_chars("#>-"),
     );
 
-    // Index files
+    // Index files with controlled parallelism to prevent memory exhaustion
     #[cfg(feature = "parallel")]
     {
         use rayon::prelude::*;
-        files.par_iter().for_each(|file| {
-            if let Err(e) = index_file(&db_path, &store_name, file, &path) {
-                eprintln!("Error indexing {}: {}", file.display(), e);
-            }
-            pb.inc(1);
+
+        // Build a thread pool with limited parallelism
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(jobs.max(1))
+            .build()
+            .context("Failed to create thread pool")?;
+
+        pool.install(|| {
+            files.par_iter().for_each(|file| {
+                if let Err(e) = index_file(&db_path, &store_name, file, &path) {
+                    eprintln!("Error indexing {}: {}", file.display(), e);
+                }
+                pb.inc(1);
+            });
         });
     }
 
