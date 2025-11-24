@@ -51,7 +51,9 @@ impl EmbeddingModel {
         };
 
         // Download model from HuggingFace Hub
-        let api = ApiBuilder::from_env().build().map_err(|e| Error::from_reason(format!("HF API error: {}", e)))?;
+        let api = ApiBuilder::from_env()
+            .build()
+            .map_err(|e| Error::from_reason(format!("HF API error: {}", e)))?;
         let repo = api.repo(Repo::new(model_id.to_string(), RepoType::Model));
 
         let config_path = repo
