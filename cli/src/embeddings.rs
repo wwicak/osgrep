@@ -44,12 +44,17 @@ impl EmbeddingModel {
         let repo = api.repo(Repo::new(model_id.to_string(), RepoType::Model));
 
         let config_path = repo.get("config.json").context("Failed to get config")?;
-        let tokenizer_path = repo.get("tokenizer.json").context("Failed to get tokenizer")?;
-        let weights_path = repo.get("model.safetensors").context("Failed to get weights")?;
+        let tokenizer_path = repo
+            .get("tokenizer.json")
+            .context("Failed to get tokenizer")?;
+        let weights_path = repo
+            .get("model.safetensors")
+            .context("Failed to get weights")?;
 
         let config: Config = serde_json::from_str(
             &std::fs::read_to_string(&config_path).context("Failed to read config")?,
-        ).context("Failed to parse config")?;
+        )
+        .context("Failed to parse config")?;
 
         let dim = config.hidden_size;
 
@@ -74,7 +79,12 @@ impl EmbeddingModel {
 
         let model = BertModel::load(vb, &config).context("Failed to load model")?;
 
-        Ok(Self { model, tokenizer, device, dim })
+        Ok(Self {
+            model,
+            tokenizer,
+            device,
+            dim,
+        })
     }
 
     fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
@@ -82,7 +92,8 @@ impl EmbeddingModel {
             return Ok(vec![]);
         }
 
-        let encodings = self.tokenizer
+        let encodings = self
+            .tokenizer
             .encode_batch(texts.to_vec(), true)
             .map_err(|e| anyhow::anyhow!("Tokenization error: {}", e))?;
 
@@ -103,7 +114,9 @@ impl EmbeddingModel {
         let attention_mask = Tensor::from_vec(attention_mask, (batch_size, seq_len), &self.device)?;
         let token_type_ids = Tensor::from_vec(token_type_ids, (batch_size, seq_len), &self.device)?;
 
-        let embeddings = self.model.forward(&input_ids, &token_type_ids, Some(&attention_mask))?;
+        let embeddings = self
+            .model
+            .forward(&input_ids, &token_type_ids, Some(&attention_mask))?;
 
         // Mean pooling
         let mask_expanded = attention_mask
@@ -117,10 +130,19 @@ impl EmbeddingModel {
         let pooled = (&sum / &count)?;
 
         // L2 normalize
-        let norm = pooled.sqr()?.sum_keepdim(1)?.sqrt()?.clamp(1e-9, f64::MAX)?;
+        let norm = pooled
+            .sqr()?
+            .sum_keepdim(1)?
+            .sqrt()?
+            .clamp(1e-9, f64::MAX)?;
         let normalized = (&pooled / &norm)?;
 
-        let flat: Vec<f32> = normalized.to_dtype(DType::F32)?.to_vec2()?.into_iter().flatten().collect();
+        let flat: Vec<f32> = normalized
+            .to_dtype(DType::F32)?
+            .to_vec2()?
+            .into_iter()
+            .flatten()
+            .collect();
         Ok(flat.chunks(self.dim).map(|c| c.to_vec()).collect())
     }
 }

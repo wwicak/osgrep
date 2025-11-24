@@ -70,7 +70,9 @@ pub fn get_simd_level() -> String {
 pub fn dot_product(a: Float32Array, b: Float32Array) -> f64 {
     let a = a.as_ref();
     let b = b.as_ref();
-    if a.len() != b.len() { return 0.0; }
+    if a.len() != b.len() {
+        return 0.0;
+    }
     dot_product_dispatch(a, b)
 }
 
@@ -89,7 +91,9 @@ fn dot_product_dispatch(a: &[f32], b: &[f32]) -> f64 {
         }
     }
     #[cfg(target_arch = "aarch64")]
-    { return unsafe { dot_neon(a, b) }; }
+    {
+        return unsafe { dot_neon(a, b) };
+    }
 
     dot_scalar(a, b)
 }
@@ -123,17 +127,28 @@ unsafe fn dot_avx2_fma(a: &[f32], b: &[f32]) -> f64 {
     let len = a.len();
     let (a_ptr, b_ptr) = (a.as_ptr(), b.as_ptr());
 
-    let (mut s0, mut s1, mut s2, mut s3) = (
-        _mm256_setzero_ps(), _mm256_setzero_ps(),
-        _mm256_setzero_ps(), _mm256_setzero_ps()
-    );
+    let (mut s0, mut s1, mut s2, mut s3) =
+        (_mm256_setzero_ps(), _mm256_setzero_ps(), _mm256_setzero_ps(), _mm256_setzero_ps());
 
     for i in 0..(len / 32) {
         let base = i * 32;
-        s0 = _mm256_fmadd_ps(_mm256_loadu_ps(a_ptr.add(base)), _mm256_loadu_ps(b_ptr.add(base)), s0);
-        s1 = _mm256_fmadd_ps(_mm256_loadu_ps(a_ptr.add(base+8)), _mm256_loadu_ps(b_ptr.add(base+8)), s1);
-        s2 = _mm256_fmadd_ps(_mm256_loadu_ps(a_ptr.add(base+16)), _mm256_loadu_ps(b_ptr.add(base+16)), s2);
-        s3 = _mm256_fmadd_ps(_mm256_loadu_ps(a_ptr.add(base+24)), _mm256_loadu_ps(b_ptr.add(base+24)), s3);
+        s0 =
+            _mm256_fmadd_ps(_mm256_loadu_ps(a_ptr.add(base)), _mm256_loadu_ps(b_ptr.add(base)), s0);
+        s1 = _mm256_fmadd_ps(
+            _mm256_loadu_ps(a_ptr.add(base + 8)),
+            _mm256_loadu_ps(b_ptr.add(base + 8)),
+            s1,
+        );
+        s2 = _mm256_fmadd_ps(
+            _mm256_loadu_ps(a_ptr.add(base + 16)),
+            _mm256_loadu_ps(b_ptr.add(base + 16)),
+            s2,
+        );
+        s3 = _mm256_fmadd_ps(
+            _mm256_loadu_ps(a_ptr.add(base + 24)),
+            _mm256_loadu_ps(b_ptr.add(base + 24)),
+            s3,
+        );
     }
 
     let sum = _mm256_add_ps(_mm256_add_ps(s0, s1), _mm256_add_ps(s2, s3));
@@ -144,7 +159,9 @@ unsafe fn dot_avx2_fma(a: &[f32], b: &[f32]) -> f64 {
     let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
     let mut result = _mm_cvtss_f32(sum32) as f64;
 
-    for i in ((len / 32) * 32)..len { result += (a[i] as f64) * (b[i] as f64); }
+    for i in ((len / 32) * 32)..len {
+        result += (a[i] as f64) * (b[i] as f64);
+    }
     result
 }
 
@@ -169,7 +186,9 @@ unsafe fn dot_avx2(a: &[f32], b: &[f32]) -> f64 {
     let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
     let mut result = _mm_cvtss_f32(sum32) as f64;
 
-    for i in ((len / 8) * 8)..len { result += (a[i] as f64) * (b[i] as f64); }
+    for i in ((len / 8) * 8)..len {
+        result += (a[i] as f64) * (b[i] as f64);
+    }
     result
 }
 
@@ -185,7 +204,9 @@ unsafe fn dot_neon(a: &[f32], b: &[f32]) -> f64 {
     }
 
     let mut result = vaddvq_f32(sum) as f64;
-    for i in ((len / 4) * 4)..len { result += (*a_ptr.add(i) as f64) * (*b_ptr.add(i) as f64); }
+    for i in ((len / 4) * 4)..len {
+        result += (*a_ptr.add(i) as f64) * (*b_ptr.add(i) as f64);
+    }
     result
 }
 
@@ -196,12 +217,14 @@ fn dot_scalar(a: &[f32], b: &[f32]) -> f64 {
     for i in 0..(len / 4) {
         let base = i * 4;
         s0 += (a[base] as f64) * (b[base] as f64);
-        s1 += (a[base+1] as f64) * (b[base+1] as f64);
-        s2 += (a[base+2] as f64) * (b[base+2] as f64);
-        s3 += (a[base+3] as f64) * (b[base+3] as f64);
+        s1 += (a[base + 1] as f64) * (b[base + 1] as f64);
+        s2 += (a[base + 2] as f64) * (b[base + 2] as f64);
+        s3 += (a[base + 3] as f64) * (b[base + 3] as f64);
     }
     let mut result = s0 + s1 + s2 + s3;
-    for i in ((len / 4) * 4)..len { result += (a[i] as f64) * (b[i] as f64); }
+    for i in ((len / 4) * 4)..len {
+        result += (a[i] as f64) * (b[i] as f64);
+    }
     result
 }
 
@@ -220,13 +243,23 @@ pub fn batch_dot_product(query: Float32Array, vectors: Vec<Float32Array>) -> Vec
 
     #[cfg(feature = "parallel")]
     if vectors.len() >= 32 {
-        return vectors.into_par_iter()
-            .map(|v| if v.as_ref().len() == q.len() { dot_product_dispatch(q, v.as_ref()) } else { 0.0 })
+        return vectors
+            .into_par_iter()
+            .map(|v| {
+                if v.as_ref().len() == q.len() {
+                    dot_product_dispatch(q, v.as_ref())
+                } else {
+                    0.0
+                }
+            })
             .collect();
     }
 
-    vectors.into_iter()
-        .map(|v| if v.as_ref().len() == q.len() { dot_product_dispatch(q, v.as_ref()) } else { 0.0 })
+    vectors
+        .into_iter()
+        .map(
+            |v| if v.as_ref().len() == q.len() { dot_product_dispatch(q, v.as_ref()) } else { 0.0 },
+        )
         .collect()
 }
 
@@ -243,8 +276,12 @@ pub fn compute_rrf_scores(ranks: Vec<u32>, k: u32) -> Vec<f64> {
 #[napi]
 pub fn fuse_rrf_scores(a: Vec<f64>, b: Vec<f64>) -> Vec<f64> {
     let mut result = vec![0.0; a.len().max(b.len())];
-    for (i, &s) in a.iter().enumerate() { result[i] += s; }
-    for (i, &s) in b.iter().enumerate() { result[i] += s; }
+    for (i, &s) in a.iter().enumerate() {
+        result[i] += s;
+    }
+    for (i, &s) in b.iter().enumerate() {
+        result[i] += s;
+    }
     result
 }
 
@@ -255,9 +292,13 @@ pub fn blend_scores(rerank: Vec<f64>, rrf: Vec<f64>, w_rerank: f64, w_rrf: f64) 
 
 #[napi]
 pub fn normalize_scores(scores: Vec<f64>) -> Vec<f64> {
-    if scores.is_empty() { return scores; }
+    if scores.is_empty() {
+        return scores;
+    }
     let max = scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    if max <= 0.0 { return vec![0.0; scores.len()]; }
+    if max <= 0.0 {
+        return vec![0.0; scores.len()];
+    }
     scores.into_iter().map(|s| s / max).collect()
 }
 
@@ -267,15 +308,21 @@ pub fn normalize_scores(scores: Vec<f64>) -> Vec<f64> {
 
 #[inline(always)]
 fn sigmoid_impl(x: f64) -> f64 {
-    if x >= 4.5 { return 1.0; }
-    if x <= -4.5 { return 0.0; }
+    if x >= 4.5 {
+        return 1.0;
+    }
+    if x <= -4.5 {
+        return 0.0;
+    }
     let x2 = x * x;
     0.5 + x * (135135.0 + x2 * (17325.0 + x2 * (378.0 + x2)))
         / (2.0 * (270270.0 + x2 * (62370.0 + x2 * (3150.0 + x2 * 28.0))))
 }
 
 #[napi]
-pub fn fast_sigmoid(x: f64) -> f64 { sigmoid_impl(x) }
+pub fn fast_sigmoid(x: f64) -> f64 {
+    sigmoid_impl(x)
+}
 
 #[napi]
 pub fn batch_sigmoid(values: Vec<f64>) -> Vec<f64> {
@@ -289,9 +336,9 @@ pub fn batch_sigmoid(values: Vec<f64>) -> Vec<f64> {
 #[napi]
 pub fn argsort_desc(values: Vec<f64>) -> Vec<u32> {
     let mut indices: Vec<u32> = (0..values.len() as u32).collect();
-    indices.sort_unstable_by(|&a, &b|
+    indices.sort_unstable_by(|&a, &b| {
         values[b as usize].partial_cmp(&values[a as usize]).unwrap_or(std::cmp::Ordering::Equal)
-    );
+    });
     indices
 }
 
@@ -333,7 +380,10 @@ unsafe fn l2_norm_avx2(v: &[f32]) -> f64 {
     let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps(sum64, sum64, 1));
     let mut result = _mm_cvtss_f32(sum32) as f64;
 
-    for i in ((len / 8) * 8)..len { let x = v[i] as f64; result += x * x; }
+    for i in ((len / 8) * 8)..len {
+        let x = v[i] as f64;
+        result += x * x;
+    }
     result.sqrt()
 }
 

@@ -196,15 +196,9 @@ pub fn insert_record(
     {
         let connections = get_connections().lock().unwrap();
         let key = format!("{}:{}", db_path, store_id);
-        let conn = connections
-            .get(&key)
-            .ok_or_else(|| Error::from_reason("Store not opened"))?;
+        let conn = connections.get(&key).ok_or_else(|| Error::from_reason("Store not opened"))?;
 
-        let id = if record.id.is_empty() {
-            Uuid::new_v4().to_string()
-        } else {
-            record.id.clone()
-        };
+        let id = if record.id.is_empty() { Uuid::new_v4().to_string() } else { record.id.clone() };
 
         // Insert main record
         conn.execute(
@@ -235,18 +229,14 @@ pub fn insert_record(
         let vector_blob = bytemuck_cast_slice(&vector_f32);
 
         conn.execute(
-            &format!(
-                r#"INSERT OR REPLACE INTO "{store_id}_vec" (id, embedding) VALUES (?1, ?2)"#
-            ),
+            &format!(r#"INSERT OR REPLACE INTO "{store_id}_vec" (id, embedding) VALUES (?1, ?2)"#),
             params![&id, vector_blob],
         )
         .map_err(|e| Error::from_reason(format!("Failed to insert vector: {}", e)))?;
 
         // Update FTS index
         conn.execute(
-            &format!(
-                r#"INSERT INTO "{store_id}_fts" (id, content, path) VALUES (?1, ?2, ?3)"#
-            ),
+            &format!(r#"INSERT INTO "{store_id}_fts" (id, content, path) VALUES (?1, ?2, ?3)"#),
             params![&id, &record.content, &record.path],
         )
         .ok(); // FTS insert may fail if already exists
@@ -275,9 +265,8 @@ pub fn insert_batch(
 
         let mut connections = get_connections().lock().unwrap();
         let key = format!("{}:{}", db_path, store_id);
-        let conn = connections
-            .get_mut(&key)
-            .ok_or_else(|| Error::from_reason("Store not opened"))?;
+        let conn =
+            connections.get_mut(&key).ok_or_else(|| Error::from_reason("Store not opened"))?;
 
         let tx = conn
             .transaction()
@@ -286,11 +275,8 @@ pub fn insert_batch(
         let mut ids = Vec::with_capacity(records.len());
 
         for (record, vector) in records.iter().zip(vectors.iter()) {
-            let id = if record.id.is_empty() {
-                Uuid::new_v4().to_string()
-            } else {
-                record.id.clone()
-            };
+            let id =
+                if record.id.is_empty() { Uuid::new_v4().to_string() } else { record.id.clone() };
 
             tx.execute(
                 &format!(
@@ -337,8 +323,7 @@ pub fn insert_batch(
             ids.push(id);
         }
 
-        tx.commit()
-            .map_err(|e| Error::from_reason(format!("Failed to commit: {}", e)))?;
+        tx.commit().map_err(|e| Error::from_reason(format!("Failed to commit: {}", e)))?;
 
         Ok(ids)
     }
@@ -355,9 +340,7 @@ pub fn delete_by_path(db_path: String, store_id: String, path: String) -> Result
     {
         let connections = get_connections().lock().unwrap();
         let key = format!("{}:{}", db_path, store_id);
-        let conn = connections
-            .get(&key)
-            .ok_or_else(|| Error::from_reason("Store not opened"))?;
+        let conn = connections.get(&key).ok_or_else(|| Error::from_reason("Store not opened"))?;
 
         // Get IDs to delete
         let mut stmt = conn
@@ -372,23 +355,12 @@ pub fn delete_by_path(db_path: String, store_id: String, path: String) -> Result
 
         // Delete from all tables
         for id in &ids {
-            conn.execute(
-                &format!(r#"DELETE FROM "{store_id}_vec" WHERE id = ?1"#),
-                [id],
-            )
-            .ok();
-            conn.execute(
-                &format!(r#"DELETE FROM "{store_id}_fts" WHERE id = ?1"#),
-                [id],
-            )
-            .ok();
+            conn.execute(&format!(r#"DELETE FROM "{store_id}_vec" WHERE id = ?1"#), [id]).ok();
+            conn.execute(&format!(r#"DELETE FROM "{store_id}_fts" WHERE id = ?1"#), [id]).ok();
         }
 
         let deleted = conn
-            .execute(
-                &format!(r#"DELETE FROM "{store_id}" WHERE path = ?1"#),
-                [&path],
-            )
+            .execute(&format!(r#"DELETE FROM "{store_id}" WHERE path = ?1"#), [&path])
             .map_err(|e| Error::from_reason(format!("Delete error: {}", e)))?;
 
         Ok(deleted as u32)
@@ -455,9 +427,7 @@ pub fn vector_search(
     {
         let connections = get_connections().lock().unwrap();
         let key = format!("{}:{}", db_path, store_id);
-        let conn = connections
-            .get(&key)
-            .ok_or_else(|| Error::from_reason("Store not opened"))?;
+        let conn = connections.get(&key).ok_or_else(|| Error::from_reason("Store not opened"))?;
 
         let query_f32: Vec<f32> = query_vector.iter().map(|&v| v as f32).collect();
         let query_blob = bytemuck_cast_slice(&query_f32);
@@ -478,7 +448,8 @@ pub fn vector_search(
                 .prepare(&sql)
                 .map_err(|e| Error::from_reason(format!("Query error: {}", e)))?;
 
-            let rows = stmt.query_map(params![query_blob, limit, format!("{}%", prefix)], parse_result_row)
+            let rows = stmt
+                .query_map(params![query_blob, limit, format!("{}%", prefix)], parse_result_row)
                 .map_err(|e| Error::from_reason(format!("Query error: {}", e)))?;
             rows.filter_map(|r| r.ok()).collect()
         } else {
@@ -496,7 +467,8 @@ pub fn vector_search(
                 .prepare(&sql)
                 .map_err(|e| Error::from_reason(format!("Query error: {}", e)))?;
 
-            let rows = stmt.query_map(params![query_blob, limit], parse_result_row)
+            let rows = stmt
+                .query_map(params![query_blob, limit], parse_result_row)
                 .map_err(|e| Error::from_reason(format!("Query error: {}", e)))?;
             rows.filter_map(|r| r.ok()).collect()
         };
@@ -522,9 +494,7 @@ pub fn fts_search(
     {
         let connections = get_connections().lock().unwrap();
         let key = format!("{}:{}", db_path, store_id);
-        let conn = connections
-            .get(&key)
-            .ok_or_else(|| Error::from_reason("Store not opened"))?;
+        let conn = connections.get(&key).ok_or_else(|| Error::from_reason("Store not opened"))?;
 
         // Escape FTS query
         let fts_query = query.replace('"', "\"\"");
@@ -545,7 +515,8 @@ pub fn fts_search(
                 .prepare(&sql)
                 .map_err(|e| Error::from_reason(format!("Query error: {}", e)))?;
 
-            let rows = stmt.query_map(params![&fts_query, limit, format!("{}%", prefix)], parse_fts_result_row)
+            let rows = stmt
+                .query_map(params![&fts_query, limit, format!("{}%", prefix)], parse_fts_result_row)
                 .map_err(|e| Error::from_reason(format!("Query error: {}", e)))?;
             rows.filter_map(|r| r.ok()).collect()
         } else {
@@ -563,7 +534,8 @@ pub fn fts_search(
                 .prepare(&sql)
                 .map_err(|e| Error::from_reason(format!("Query error: {}", e)))?;
 
-            let rows = stmt.query_map(params![&fts_query, limit], parse_fts_result_row)
+            let rows = stmt
+                .query_map(params![&fts_query, limit], parse_fts_result_row)
                 .map_err(|e| Error::from_reason(format!("Query error: {}", e)))?;
             rows.filter_map(|r| r.ok()).collect()
         };
@@ -583,9 +555,7 @@ pub fn list_files(db_path: String, store_id: String) -> Result<Vec<String>> {
     {
         let connections = get_connections().lock().unwrap();
         let key = format!("{}:{}", db_path, store_id);
-        let conn = connections
-            .get(&key)
-            .ok_or_else(|| Error::from_reason("Store not opened"))?;
+        let conn = connections.get(&key).ok_or_else(|| Error::from_reason("Store not opened"))?;
 
         let mut stmt = conn
             .prepare(&format!(r#"SELECT DISTINCT path FROM "{store_id}""#))
@@ -612,16 +582,10 @@ pub fn count_records(db_path: String, store_id: String) -> Result<u32> {
     {
         let connections = get_connections().lock().unwrap();
         let key = format!("{}:{}", db_path, store_id);
-        let conn = connections
-            .get(&key)
-            .ok_or_else(|| Error::from_reason("Store not opened"))?;
+        let conn = connections.get(&key).ok_or_else(|| Error::from_reason("Store not opened"))?;
 
         let count: i64 = conn
-            .query_row(
-                &format!(r#"SELECT COUNT(*) FROM "{store_id}""#),
-                [],
-                |row| row.get(0),
-            )
+            .query_row(&format!(r#"SELECT COUNT(*) FROM "{store_id}""#), [], |row| row.get(0))
             .map_err(|e| Error::from_reason(format!("Query error: {}", e)))?;
 
         Ok(count as u32)
@@ -636,6 +600,9 @@ pub fn count_records(db_path: String, store_id: String) -> Result<u32> {
 #[cfg(feature = "sqlite")]
 fn bytemuck_cast_slice(data: &[f32]) -> &[u8] {
     unsafe {
-        std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * std::mem::size_of::<f32>())
+        std::slice::from_raw_parts(
+            data.as_ptr() as *const u8,
+            data.len() * std::mem::size_of::<f32>(),
+        )
     }
 }

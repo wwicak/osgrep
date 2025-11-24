@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use std::path::Path;
-use tree_sitter::{Parser, Language};
+use tree_sitter::{Language, Parser};
 
 pub struct Chunk {
     pub text: String,
@@ -45,7 +45,9 @@ fn get_language(ext: &str) -> Option<Language> {
 
 fn chunk_with_treesitter(content: &str, language: Language) -> Result<Vec<Chunk>> {
     let mut parser = Parser::new();
-    parser.set_language(&language).context("Failed to set language")?;
+    parser
+        .set_language(&language)
+        .context("Failed to set language")?;
 
     let tree = parser.parse(content, None).context("Failed to parse")?;
     let root = tree.root_node();
@@ -75,17 +77,30 @@ fn chunk_with_treesitter(content: &str, language: Language) -> Result<Vec<Chunk>
     Ok(chunks)
 }
 
-fn extract_chunks(node: &tree_sitter::Node, content: &str, lines: &[&str], chunks: &mut Vec<Chunk>) {
+fn extract_chunks(
+    node: &tree_sitter::Node,
+    content: &str,
+    lines: &[&str],
+    chunks: &mut Vec<Chunk>,
+) {
     let kind = node.kind();
 
     // Check if this is a significant node (function, class, etc.)
     let is_significant = matches!(
         kind,
-        "function_definition" | "function_item" | "function_declaration" |
-        "method_definition" | "method_declaration" |
-        "class_definition" | "class_declaration" | "struct_item" | "impl_item" |
-        "interface_declaration" | "trait_item" |
-        "module" | "namespace_definition"
+        "function_definition"
+            | "function_item"
+            | "function_declaration"
+            | "method_definition"
+            | "method_declaration"
+            | "class_definition"
+            | "class_declaration"
+            | "struct_item"
+            | "impl_item"
+            | "interface_declaration"
+            | "trait_item"
+            | "module"
+            | "namespace_definition"
     );
 
     if is_significant {
@@ -94,8 +109,7 @@ fn extract_chunks(node: &tree_sitter::Node, content: &str, lines: &[&str], chunk
         let num_lines = end_line - start_line + 1;
 
         if num_lines >= MIN_CHUNK_LINES && num_lines <= MAX_CHUNK_LINES {
-            let text: String = lines[start_line..=end_line.min(lines.len() - 1)]
-                .join("\n");
+            let text: String = lines[start_line..=end_line.min(lines.len() - 1)].join("\n");
 
             chunks.push(Chunk {
                 text,
@@ -119,16 +133,17 @@ fn create_anchor(content: &str, lines: &[&str]) -> String {
     let mut anchor = String::new();
 
     // Add imports/includes (first 20 lines or until first non-import)
-    let import_lines: Vec<&str> = lines.iter()
+    let import_lines: Vec<&str> = lines
+        .iter()
         .take(20)
         .filter(|l| {
             let l = l.trim();
-            l.starts_with("import") ||
-            l.starts_with("from") ||
-            l.starts_with("use ") ||
-            l.starts_with("#include") ||
-            l.starts_with("require") ||
-            l.starts_with("package ")
+            l.starts_with("import")
+                || l.starts_with("from")
+                || l.starts_with("use ")
+                || l.starts_with("#include")
+                || l.starts_with("require")
+                || l.starts_with("package ")
         })
         .copied()
         .collect();
@@ -139,16 +154,23 @@ fn create_anchor(content: &str, lines: &[&str]) -> String {
     }
 
     // Add function/class signatures
-    let signatures: Vec<&str> = lines.iter()
+    let signatures: Vec<&str> = lines
+        .iter()
         .filter(|l| {
             let l = l.trim();
-            (l.starts_with("fn ") || l.starts_with("pub fn ") ||
-             l.starts_with("def ") || l.starts_with("async def ") ||
-             l.starts_with("function ") || l.starts_with("async function ") ||
-             l.starts_with("class ") || l.starts_with("struct ") ||
-             l.starts_with("interface ") || l.starts_with("trait ") ||
-             l.starts_with("impl ") || l.starts_with("type ")) &&
-            l.len() < 200
+            (l.starts_with("fn ")
+                || l.starts_with("pub fn ")
+                || l.starts_with("def ")
+                || l.starts_with("async def ")
+                || l.starts_with("function ")
+                || l.starts_with("async function ")
+                || l.starts_with("class ")
+                || l.starts_with("struct ")
+                || l.starts_with("interface ")
+                || l.starts_with("trait ")
+                || l.starts_with("impl ")
+                || l.starts_with("type "))
+                && l.len() < 200
         })
         .take(20)
         .copied()
@@ -160,7 +182,12 @@ fn create_anchor(content: &str, lines: &[&str]) -> String {
 
     if anchor.is_empty() {
         // Use first 10 lines as fallback
-        anchor = lines.iter().take(10).copied().collect::<Vec<_>>().join("\n");
+        anchor = lines
+            .iter()
+            .take(10)
+            .copied()
+            .collect::<Vec<_>>()
+            .join("\n");
     }
 
     anchor

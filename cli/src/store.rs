@@ -96,7 +96,8 @@ pub fn open(db_path: &PathBuf, store_id: &str) -> Result<()> {
     conn.execute(
         &format!(r#"CREATE INDEX IF NOT EXISTS "{store_id}_path_idx" ON "{store_id}"(path)"#),
         [],
-    ).ok();
+    )
+    .ok();
 
     let mut connections = get_connections().lock().unwrap();
     connections.insert(format!("{}:{}", db_path.display(), store_id), conn);
@@ -111,7 +112,12 @@ pub fn open(_db_path: &PathBuf, _store_id: &str) -> Result<()> {
 
 /// Insert batch of records
 #[cfg(feature = "sqlite")]
-pub fn insert_batch(db_path: &PathBuf, store_id: &str, records: &[Record], vectors: &[Vec<f32>]) -> Result<()> {
+pub fn insert_batch(
+    db_path: &PathBuf,
+    store_id: &str,
+    records: &[Record],
+    vectors: &[Vec<f32>],
+) -> Result<()> {
     let mut connections = get_connections().lock().unwrap();
     let key = format!("{}:{}", db_path.display(), store_id);
     let conn = connections.get_mut(&key).context("Store not opened")?;
@@ -143,9 +149,12 @@ pub fn insert_batch(db_path: &PathBuf, store_id: &str, records: &[Record], vecto
         )?;
 
         tx.execute(
-            &format!(r#"INSERT OR REPLACE INTO "{store_id}_fts" (id, content, path) VALUES (?1, ?2, ?3)"#),
+            &format!(
+                r#"INSERT OR REPLACE INTO "{store_id}_fts" (id, content, path) VALUES (?1, ?2, ?3)"#
+            ),
             params![&record.id, &record.content, &record.path],
-        ).ok();
+        )
+        .ok();
     }
 
     tx.commit()?;
@@ -153,7 +162,12 @@ pub fn insert_batch(db_path: &PathBuf, store_id: &str, records: &[Record], vecto
 }
 
 #[cfg(not(feature = "sqlite"))]
-pub fn insert_batch(_db_path: &PathBuf, _store_id: &str, _records: &[Record], _vectors: &[Vec<f32>]) -> Result<()> {
+pub fn insert_batch(
+    _db_path: &PathBuf,
+    _store_id: &str,
+    _records: &[Record],
+    _vectors: &[Vec<f32>],
+) -> Result<()> {
     anyhow::bail!("SQLite feature not enabled")
 }
 
@@ -166,14 +180,28 @@ pub fn delete_by_path(db_path: &PathBuf, store_id: &str, path: &str) -> Result<(
 
     // Get IDs to delete
     let mut stmt = conn.prepare(&format!(r#"SELECT id FROM "{store_id}" WHERE path = ?1"#))?;
-    let ids: Vec<String> = stmt.query_map([path], |row| row.get(0))?.filter_map(|r| r.ok()).collect();
+    let ids: Vec<String> = stmt
+        .query_map([path], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
 
     for id in &ids {
-        conn.execute(&format!(r#"DELETE FROM "{store_id}_vec" WHERE id = ?1"#), [id]).ok();
-        conn.execute(&format!(r#"DELETE FROM "{store_id}_fts" WHERE id = ?1"#), [id]).ok();
+        conn.execute(
+            &format!(r#"DELETE FROM "{store_id}_vec" WHERE id = ?1"#),
+            [id],
+        )
+        .ok();
+        conn.execute(
+            &format!(r#"DELETE FROM "{store_id}_fts" WHERE id = ?1"#),
+            [id],
+        )
+        .ok();
     }
 
-    conn.execute(&format!(r#"DELETE FROM "{store_id}" WHERE path = ?1"#), [path])?;
+    conn.execute(
+        &format!(r#"DELETE FROM "{store_id}" WHERE path = ?1"#),
+        [path],
+    )?;
     Ok(())
 }
 
@@ -184,7 +212,13 @@ pub fn delete_by_path(_db_path: &PathBuf, _store_id: &str, _path: &str) -> Resul
 
 /// Vector search
 #[cfg(feature = "sqlite")]
-pub fn search(db_path: &PathBuf, store_id: &str, query_vec: &[f32], limit: usize, path_prefix: Option<&str>) -> Result<Vec<SearchResult>> {
+pub fn search(
+    db_path: &PathBuf,
+    store_id: &str,
+    query_vec: &[f32],
+    limit: usize,
+    path_prefix: Option<&str>,
+) -> Result<Vec<SearchResult>> {
     let connections = get_connections().lock().unwrap();
     let key = format!("{}:{}", db_path.display(), store_id);
     let conn = connections.get(&key).context("Store not opened")?;
@@ -246,7 +280,13 @@ pub fn search(db_path: &PathBuf, store_id: &str, query_vec: &[f32], limit: usize
 }
 
 #[cfg(not(feature = "sqlite"))]
-pub fn search(_db_path: &PathBuf, _store_id: &str, _query_vec: &[f32], _limit: usize, _path_prefix: Option<&str>) -> Result<Vec<SearchResult>> {
+pub fn search(
+    _db_path: &PathBuf,
+    _store_id: &str,
+    _query_vec: &[f32],
+    _limit: usize,
+    _path_prefix: Option<&str>,
+) -> Result<Vec<SearchResult>> {
     anyhow::bail!("SQLite feature not enabled")
 }
 
@@ -257,7 +297,11 @@ pub fn count(db_path: &PathBuf, store_id: &str) -> Result<u32> {
     let key = format!("{}:{}", db_path.display(), store_id);
     let conn = connections.get(&key).context("Store not opened")?;
 
-    let count: i64 = conn.query_row(&format!(r#"SELECT COUNT(*) FROM "{store_id}""#), [], |row| row.get(0))?;
+    let count: i64 = conn.query_row(
+        &format!(r#"SELECT COUNT(*) FROM "{store_id}""#),
+        [],
+        |row| row.get(0),
+    )?;
     Ok(count as u32)
 }
 
@@ -269,6 +313,9 @@ pub fn count(_db_path: &PathBuf, _store_id: &str) -> Result<u32> {
 #[cfg(feature = "sqlite")]
 fn bytemuck_cast_slice(data: &[f32]) -> &[u8] {
     unsafe {
-        std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * std::mem::size_of::<f32>())
+        std::slice::from_raw_parts(
+            data.as_ptr() as *const u8,
+            data.len() * std::mem::size_of::<f32>(),
+        )
     }
 }

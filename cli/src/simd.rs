@@ -44,16 +44,34 @@ unsafe fn dot_avx2_fma(a: &[f32], b: &[f32]) -> f32 {
     let (a_ptr, b_ptr) = (a.as_ptr(), b.as_ptr());
 
     let (mut s0, mut s1, mut s2, mut s3) = (
-        _mm256_setzero_ps(), _mm256_setzero_ps(),
-        _mm256_setzero_ps(), _mm256_setzero_ps()
+        _mm256_setzero_ps(),
+        _mm256_setzero_ps(),
+        _mm256_setzero_ps(),
+        _mm256_setzero_ps(),
     );
 
     for i in 0..(len / 32) {
         let base = i * 32;
-        s0 = _mm256_fmadd_ps(_mm256_loadu_ps(a_ptr.add(base)), _mm256_loadu_ps(b_ptr.add(base)), s0);
-        s1 = _mm256_fmadd_ps(_mm256_loadu_ps(a_ptr.add(base+8)), _mm256_loadu_ps(b_ptr.add(base+8)), s1);
-        s2 = _mm256_fmadd_ps(_mm256_loadu_ps(a_ptr.add(base+16)), _mm256_loadu_ps(b_ptr.add(base+16)), s2);
-        s3 = _mm256_fmadd_ps(_mm256_loadu_ps(a_ptr.add(base+24)), _mm256_loadu_ps(b_ptr.add(base+24)), s3);
+        s0 = _mm256_fmadd_ps(
+            _mm256_loadu_ps(a_ptr.add(base)),
+            _mm256_loadu_ps(b_ptr.add(base)),
+            s0,
+        );
+        s1 = _mm256_fmadd_ps(
+            _mm256_loadu_ps(a_ptr.add(base + 8)),
+            _mm256_loadu_ps(b_ptr.add(base + 8)),
+            s1,
+        );
+        s2 = _mm256_fmadd_ps(
+            _mm256_loadu_ps(a_ptr.add(base + 16)),
+            _mm256_loadu_ps(b_ptr.add(base + 16)),
+            s2,
+        );
+        s3 = _mm256_fmadd_ps(
+            _mm256_loadu_ps(a_ptr.add(base + 24)),
+            _mm256_loadu_ps(b_ptr.add(base + 24)),
+            s3,
+        );
     }
 
     let sum = _mm256_add_ps(_mm256_add_ps(s0, s1), _mm256_add_ps(s2, s3));
@@ -76,9 +94,9 @@ fn dot_scalar(a: &[f32], b: &[f32]) -> f32 {
     for i in 0..(len / 4) {
         let base = i * 4;
         s0 += a[base] * b[base];
-        s1 += a[base+1] * b[base+1];
-        s2 += a[base+2] * b[base+2];
-        s3 += a[base+3] * b[base+3];
+        s1 += a[base + 1] * b[base + 1];
+        s2 += a[base + 2] * b[base + 2];
+        s3 += a[base + 3] * b[base + 3];
     }
     let mut result = s0 + s1 + s2 + s3;
     for i in ((len / 4) * 4)..len {

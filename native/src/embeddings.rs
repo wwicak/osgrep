@@ -81,10 +81,7 @@ impl EmbeddingModel {
                 strategy: PaddingStrategy::BatchLongest,
                 ..Default::default()
             }))
-            .with_truncation(Some(TruncationParams {
-                max_length: 512,
-                ..Default::default()
-            }))
+            .with_truncation(Some(TruncationParams { max_length: 512, ..Default::default() }))
             .map_err(|e| Error::from_reason(format!("Tokenizer config error: {}", e)))?;
 
         // Load model weights - use f32 for compatibility, Metal will optimize
@@ -96,12 +93,7 @@ impl EmbeddingModel {
         let model = BertModel::load(vb, &config)
             .map_err(|e| Error::from_reason(format!("Failed to load model: {}", e)))?;
 
-        Ok(Self {
-            model,
-            tokenizer,
-            device,
-            dim,
-        })
+        Ok(Self { model, tokenizer, device, dim })
     }
 
     fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
@@ -131,12 +123,10 @@ impl EmbeddingModel {
 
         let input_ids = Tensor::from_vec(input_ids, (batch_size, seq_len), &self.device)
             .map_err(|e| Error::from_reason(format!("Tensor error: {}", e)))?;
-        let attention_mask =
-            Tensor::from_vec(attention_mask, (batch_size, seq_len), &self.device)
-                .map_err(|e| Error::from_reason(format!("Tensor error: {}", e)))?;
-        let token_type_ids =
-            Tensor::from_vec(token_type_ids, (batch_size, seq_len), &self.device)
-                .map_err(|e| Error::from_reason(format!("Tensor error: {}", e)))?;
+        let attention_mask = Tensor::from_vec(attention_mask, (batch_size, seq_len), &self.device)
+            .map_err(|e| Error::from_reason(format!("Tensor error: {}", e)))?;
+        let token_type_ids = Tensor::from_vec(token_type_ids, (batch_size, seq_len), &self.device)
+            .map_err(|e| Error::from_reason(format!("Tensor error: {}", e)))?;
 
         // Forward pass
         let embeddings = self
@@ -155,9 +145,7 @@ impl EmbeddingModel {
 
         let masked = (embeddings * &mask_expanded)
             .map_err(|e| Error::from_reason(format!("Multiply error: {}", e)))?;
-        let sum = masked
-            .sum(1)
-            .map_err(|e| Error::from_reason(format!("Sum error: {}", e)))?;
+        let sum = masked.sum(1).map_err(|e| Error::from_reason(format!("Sum error: {}", e)))?;
         let count = mask_expanded
             .sum(1)
             .map_err(|e| Error::from_reason(format!("Count error: {}", e)))?
@@ -237,7 +225,8 @@ pub fn get_embedding_backend() -> String {
 pub fn init_embeddings(model_id: Option<String>) -> Result<bool> {
     #[cfg(feature = "embeddings")]
     {
-        let model_id = model_id.unwrap_or_else(|| "sentence-transformers/all-MiniLM-L6-v2".to_string());
+        let model_id =
+            model_id.unwrap_or_else(|| "sentence-transformers/all-MiniLM-L6-v2".to_string());
 
         // Check if Metal should be used
         let use_metal = cfg!(all(target_os = "macos", feature = "metal"));
@@ -261,7 +250,13 @@ pub fn embed(text: String) -> Result<Vec<f64>> {
         })?;
 
         let embeddings = model.embed_batch(&[text])?;
-        Ok(embeddings.into_iter().next().unwrap_or_default().into_iter().map(|x| x as f64).collect())
+        Ok(embeddings
+            .into_iter()
+            .next()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|x| x as f64)
+            .collect())
     }
     #[cfg(not(feature = "embeddings"))]
     {
@@ -285,7 +280,9 @@ pub fn embed_batch(texts: Vec<String>) -> Result<Vec<Vec<f64>>> {
 
         for chunk in texts.chunks(CHUNK_SIZE) {
             let chunk_embeddings = model.embed_batch(&chunk.to_vec())?;
-            all_embeddings.extend(chunk_embeddings.into_iter().map(|v| v.into_iter().map(|x| x as f64).collect()));
+            all_embeddings.extend(
+                chunk_embeddings.into_iter().map(|v| v.into_iter().map(|x| x as f64).collect()),
+            );
         }
 
         Ok(all_embeddings)
@@ -324,11 +321,8 @@ pub fn text_similarity(text_a: String, text_b: String) -> Result<f64> {
         }
 
         // Dot product (vectors are already normalized)
-        let similarity: f32 = embeddings[0]
-            .iter()
-            .zip(embeddings[1].iter())
-            .map(|(a, b)| a * b)
-            .sum();
+        let similarity: f32 =
+            embeddings[0].iter().zip(embeddings[1].iter()).map(|(a, b)| a * b).sum();
 
         Ok(similarity as f64)
     }
@@ -341,7 +335,11 @@ pub fn text_similarity(text_a: String, text_b: String) -> Result<f64> {
 /// Search for most similar texts from candidates
 /// Returns indices sorted by similarity (descending)
 #[napi]
-pub fn search_similar(query: String, candidates: Vec<String>, top_k: Option<u32>) -> Result<Vec<u32>> {
+pub fn search_similar(
+    query: String,
+    candidates: Vec<String>,
+    top_k: Option<u32>,
+) -> Result<Vec<u32>> {
     #[cfg(feature = "embeddings")]
     {
         let model = MODEL.get().ok_or_else(|| {
