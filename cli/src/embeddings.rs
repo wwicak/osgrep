@@ -16,7 +16,7 @@ use {
     candle_core::{Device, Tensor},
     candle_nn::VarBuilder,
     candle_transformers::models::bert::{BertModel, Config, DTYPE},
-    hf_hub::{api::sync::Api, Repo, RepoType},
+    hf_hub::{api::sync::ApiBuilder, Repo, RepoType},
     tokenizers::{PaddingParams, PaddingStrategy, Tokenizer, TruncationParams},
 };
 
@@ -45,7 +45,7 @@ impl EmbeddingModel {
 
         // BGE model - excellent for code retrieval, BERT-compatible
         let model_id = "BAAI/bge-base-en-v1.5";
-        let api = Api::new().map_err(|e| anyhow::anyhow!("HF API error: {}", e))?;
+        let api = ApiBuilder::from_env().build().map_err(|e| anyhow::anyhow!("HF API error: {}", e))?;
         let repo = api.repo(Repo::new(model_id.to_string(), RepoType::Model));
 
         let config_path = repo
