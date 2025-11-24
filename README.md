@@ -8,7 +8,7 @@ Natural-language search that works like `grep`. Native Rust implementation with 
 
 - **Semantic:** Finds concepts ("auth logic"), not just strings.
 - **Native Performance:** Pure Rust with AVX-512/AVX2/NEON SIMD acceleration.
-- **Local & Private:** 100% local embeddings via Candle ML (with Metal GPU on Apple Silicon).
+- **Cloud-Powered:** Remote embeddings via OpenAI-compatible APIs (OpenRouter, OpenAI).
 - **Lightweight:** SQLite-Vec storage, no heavy dependencies.
 - **Agent-Ready:** MCP server for Claude Code integration.
 
@@ -43,12 +43,7 @@ source ~/.cargo/env
 # Clone and build
 git clone https://github.com/wwicak/osgrep
 cd osgrep
-
-# Apple Silicon: Build with Metal GPU acceleration
-cargo build --release -p osgrep --features embeddings,metal,sqlite,parallel
-
-# Intel Mac: Build without Metal
-cargo build --release -p osgrep --features embeddings,sqlite,parallel
+cargo build --release -p osgrep --features sqlite,parallel
 
 # Install
 sudo cp target/release/osgrep /usr/local/bin/
@@ -80,7 +75,7 @@ osgrep info
 # Clone and build
 git clone https://github.com/wwicak/osgrep
 cd osgrep
-cargo build --release -p osgrep --features embeddings,sqlite,parallel
+cargo build --release -p osgrep --features sqlite,parallel
 
 # Install
 Copy-Item target\release\osgrep.exe $env:LOCALAPPDATA\osgrep\
@@ -107,7 +102,7 @@ source ~/.cargo/env
 # Clone and build
 git clone https://github.com/wwicak/osgrep
 cd osgrep
-cargo build --release -p osgrep --features embeddings,sqlite,parallel
+cargo build --release -p osgrep --features sqlite,parallel
 
 # Install
 sudo cp target/release/osgrep /usr/local/bin/
@@ -116,6 +111,10 @@ sudo cp target/release/osgrep /usr/local/bin/
 ## Quick Start
 
 ```bash
+# Configure remote embeddings (required)
+osgrep config --init
+# Edit ~/.osgrep/config.json with your API key
+
 # Index your codebase
 cd my-repo
 osgrep index
@@ -290,14 +289,11 @@ osgrep is designed to be a "good citizen" on your machine:
 
 ### Embedding Providers
 
-osgrep supports two embedding modes:
+osgrep uses remote embeddings via cloud APIs like OpenRouter, OpenAI, or any OpenAI-compatible endpoint.
 
-1. **Local** (default): Uses Candle ML with BAAI/bge-base-en-v1.5 (~417MB model)
-2. **Remote**: Uses cloud APIs like OpenRouter, OpenAI, or any OpenAI-compatible endpoint
+#### Configuring Remote Embeddings (Required)
 
-#### Using Remote Embeddings (Recommended for low-memory systems)
-
-If local embeddings crash your system or are too slow, use cloud-based embeddings:
+You must configure remote embeddings before using osgrep:
 
 **1. Create config file:**
 ```bash
@@ -342,7 +338,6 @@ osgrep config --model openai/text-embedding-3-small
 |----------|------------------|------------|
 | OpenRouter | `openrouter` | `https://openrouter.ai/api/v1` (default) |
 | OpenAI | `openai` | `https://api.openai.com/v1` |
-| Local | `local` | N/A (uses Candle ML) |
 
 #### Recommended Models
 
@@ -351,7 +346,6 @@ osgrep config --model openai/text-embedding-3-small
 | `openai/text-embedding-3-small` | OpenRouter | 1536 | Default, good balance |
 | `openai/text-embedding-3-large` | OpenRouter | 3072 | Higher quality |
 | `text-embedding-3-small` | OpenAI | 1536 | Direct OpenAI API |
-| `BAAI/bge-base-en-v1.5` | Local | 768 | Default local model |
 
 ### Automatic Repository Isolation
 
@@ -416,11 +410,11 @@ cargo clippy --all-targets --all-features
 
 ## Attribution
 
-osgrep is built upon the foundation of [mgrep](https://github.com/mixedbread-ai/mgrep) by MixedBread. While approximately 90% of the current codebase has been rewritten or substantially modified to enable fully local operation, we acknowledge and appreciate the original architectural concepts and design decisions that informed this work.
+osgrep is built upon the foundation of [mgrep](https://github.com/mixedbread-ai/mgrep) by MixedBread. While approximately 90% of the current codebase has been rewritten or substantially modified, we acknowledge and appreciate the original architectural concepts and design decisions that informed this work.
 
 Key transformations in osgrep include:
-- Complete transition to local-only embeddings (no remote APIs)
-- New local storage architecture with LanceDB
+- Transition to remote-only embeddings via OpenAI-compatible APIs
+- SQLite-Vec storage architecture for efficient vector operations
 - Enhanced chunking, indexing, and watch mode capabilities
 - Extensive tooling for benchmarking and evaluation
 
