@@ -4,7 +4,9 @@
 //! - Uses Metal GPU acceleration on Apple Silicon
 //! - Processes batches in chunks of 32
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+
+#[cfg(feature = "embeddings")]
 use std::sync::OnceLock;
 
 #[cfg(feature = "embeddings")]
@@ -155,6 +157,7 @@ pub fn init() -> Result<()> {
 }
 
 #[cfg(not(feature = "embeddings"))]
+#[allow(dead_code)]
 pub fn init() -> Result<()> {
     Ok(())
 }
@@ -162,12 +165,14 @@ pub fn init() -> Result<()> {
 /// Embed a single text
 #[cfg(feature = "embeddings")]
 pub fn embed(text: &str) -> Result<Vec<f32>> {
+    use anyhow::Context;
     let model = MODEL.get().context("Model not initialized")?;
     let embeddings = model.embed_batch(&[text.to_string()])?;
     Ok(embeddings.into_iter().next().unwrap_or_default())
 }
 
 #[cfg(not(feature = "embeddings"))]
+#[allow(dead_code)]
 pub fn embed(_text: &str) -> Result<Vec<f32>> {
     Ok(vec![0.0f32; 384])
 }
@@ -175,6 +180,7 @@ pub fn embed(_text: &str) -> Result<Vec<f32>> {
 /// Embed multiple texts (batch processing)
 #[cfg(feature = "embeddings")]
 pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    use anyhow::Context;
     let model = MODEL.get().context("Model not initialized")?;
 
     const CHUNK_SIZE: usize = 32;
@@ -189,6 +195,7 @@ pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
 }
 
 #[cfg(not(feature = "embeddings"))]
+#[allow(dead_code)]
 pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     Ok(texts.iter().map(|_| vec![0.0f32; 384]).collect())
 }

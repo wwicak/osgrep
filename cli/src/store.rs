@@ -2,6 +2,8 @@
 //!
 //! Lightweight vector storage with FTS5 full-text search
 
+#![allow(clippy::ptr_arg)]
+
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -312,10 +314,5 @@ pub fn count(_db_path: &PathBuf, _store_id: &str) -> Result<u32> {
 
 #[cfg(feature = "sqlite")]
 fn bytemuck_cast_slice(data: &[f32]) -> &[u8] {
-    unsafe {
-        std::slice::from_raw_parts(
-            data.as_ptr() as *const u8,
-            data.len() * std::mem::size_of::<f32>(),
-        )
-    }
+    unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data)) }
 }

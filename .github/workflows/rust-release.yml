@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - rust
+      - devel
       - 'claude/rust-rewrite-*'
     tags: ['v*']
   pull_request:
-    branches: [rust, main]
+    branches: [rust, main, devel]
   workflow_dispatch:
 
 env:
@@ -64,7 +65,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
 

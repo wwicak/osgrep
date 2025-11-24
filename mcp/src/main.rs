@@ -14,6 +14,7 @@ const SERVER_VERSION: &str = "0.1.0";
 
 // MCP Protocol Types
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct JsonRpcRequest {
     jsonrpc: String,
     id: Option<Value>,

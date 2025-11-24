@@ -2,6 +2,8 @@
 //!
 //! Chunks code files into semantic units (functions, classes, etc.)
 
+#![allow(clippy::only_used_in_recursion)]
+
 use anyhow::{Context, Result};
 use std::path::Path;
 use tree_sitter::{Language, Parser};
@@ -108,7 +110,7 @@ fn extract_chunks(
         let end_line = node.end_position().row;
         let num_lines = end_line - start_line + 1;
 
-        if num_lines >= MIN_CHUNK_LINES && num_lines <= MAX_CHUNK_LINES {
+        if (MIN_CHUNK_LINES..=MAX_CHUNK_LINES).contains(&num_lines) {
             let text: String = lines[start_line..=end_line.min(lines.len() - 1)].join("\n");
 
             chunks.push(Chunk {
@@ -128,7 +130,7 @@ fn extract_chunks(
     }
 }
 
-fn create_anchor(content: &str, lines: &[&str]) -> String {
+fn create_anchor(_content: &str, lines: &[&str]) -> String {
     // Create a summary of the file structure
     let mut anchor = String::new();
 

@@ -7,6 +7,8 @@
 //! - Tree-sitter code chunking
 //! - File watching for live index updates
 
+#![allow(clippy::ptr_arg)]
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use console::style;
@@ -171,6 +173,7 @@ fn cmd_index(path: PathBuf, name: Option<String>, watch: bool) -> Result<()> {
     Ok(())
 }
 
+#[allow(unused_variables)]
 fn cmd_search(
     query: String,
     name: Option<String>,
@@ -279,7 +282,7 @@ fn cmd_search(
 }
 
 fn cmd_list() -> Result<()> {
-    let db_path = get_db_path()?;
+    let _db_path = get_db_path()?;
 
     println!("{} Indexed stores:", style("→").cyan());
 

@@ -1,5 +1,7 @@
 //! SIMD-optimized vector operations
 
+#![allow(dead_code)]
+
 /// Get the detected SIMD capability level
 pub fn get_level() -> &'static str {
     #[cfg(target_arch = "x86_64")]
