@@ -196,7 +196,7 @@ fn cmd_search(
     };
 
     #[cfg(not(feature = "embeddings"))]
-    let query_vec = vec![0.0f32; 384];
+    let query_vec = vec![0.0f32; 768]; // BGE base dimension
 
     // Search
     let results = store::search(
@@ -453,7 +453,7 @@ fn index_file(
             })
             .collect();
 
-        let vectors: Vec<Vec<f32>> = records.iter().map(|_| vec![0.0f32; 384]).collect();
+        let vectors: Vec<Vec<f32>> = records.iter().map(|_| vec![0.0f32; 768]).collect(); // BGE base dimension
         store::insert_batch(db_path, store_name, &records, &vectors)?;
     }
 
