@@ -130,55 +130,162 @@ fn cmd_index(path: PathBuf, name: Option<String>, watch: bool, jobs: usize) -> R
     let files = collect_files(&path)?;
     println!("{} Found {} files", style("→").cyan(), files.len());
 
-    // Initialize embeddings
+    // Phase 1: Collect all chunks (parallel file I/O, no GPU)
+    println!("{} Chunking files...", style("→").cyan());
+    let pb = ProgressBar::new(files.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")?
+            .progress_chars("#>-"),
+    );
+
+    // Struct to hold chunk data before embedding
+    struct PendingChunk {
+        path: String,
+        text: String,
+        start_line: i32,
+        end_line: i32,
+        chunk_index: i32,
+        is_anchor: bool,
+    }
+
+    let all_chunks: Vec<PendingChunk> = {
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+            use std::sync::Mutex;
+
+            let chunks = Mutex::new(Vec::new());
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(jobs.max(1))
+                .build()
+                .context("Failed to create thread pool")?;
+
+            pool.install(|| {
+                files.par_iter().for_each(|file| {
+                    if let Ok(content) = std::fs::read_to_string(file) {
+                        let rel_path = file.strip_prefix(&path).unwrap_or(file);
+                        let rel_path_str = rel_path.to_string_lossy().to_string();
+
+                        // Delete existing chunks for this file
+                        let _ = store::delete_by_path(&db_path, &store_name, &rel_path_str);
+
+                        if let Ok(file_chunks) = chunker::chunk(file, &content) {
+                            let pending: Vec<PendingChunk> = file_chunks
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, c)| PendingChunk {
+                                    path: rel_path_str.clone(),
+                                    text: c.text,
+                                    start_line: c.start_line as i32,
+                                    end_line: c.end_line as i32,
+                                    chunk_index: i as i32,
+                                    is_anchor: c.is_anchor,
+                                })
+                                .collect();
+                            chunks.lock().unwrap().extend(pending);
+                        }
+                    }
+                    pb.inc(1);
+                });
+            });
+
+            chunks.into_inner().unwrap()
+        }
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            let mut chunks = Vec::new();
+            for file in &files {
+                if let Ok(content) = std::fs::read_to_string(file) {
+                    let rel_path = file.strip_prefix(&path).unwrap_or(file);
+                    let rel_path_str = rel_path.to_string_lossy().to_string();
+
+                    let _ = store::delete_by_path(&db_path, &store_name, &rel_path_str);
+
+                    if let Ok(file_chunks) = chunker::chunk(file, &content) {
+                        let pending: Vec<PendingChunk> = file_chunks
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, c)| PendingChunk {
+                                path: rel_path_str.clone(),
+                                text: c.text,
+                                start_line: c.start_line as i32,
+                                end_line: c.end_line as i32,
+                                chunk_index: i as i32,
+                                is_anchor: c.is_anchor,
+                            })
+                            .collect();
+                        chunks.extend(pending);
+                    }
+                }
+                pb.inc(1);
+            }
+            chunks
+        }
+    };
+
+    pb.finish_with_message("done");
+    println!("{} Found {} chunks", style("→").cyan(), all_chunks.len());
+
+    if all_chunks.is_empty() {
+        println!("{} No chunks to index", style("!").yellow());
+        return Ok(());
+    }
+
+    // Phase 2: Batch embed all chunks (single GPU operation)
     #[cfg(feature = "embeddings")]
     {
         println!("{} Loading embedding model...", style("→").cyan());
         embeddings::init()?;
-    }
 
-    // Create progress bar
-    let pb = ProgressBar::new(files.len() as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template(
-                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
-            )?
-            .progress_chars("#>-"),
-    );
+        println!("{} Generating embeddings...", style("→").cyan());
+        let texts: Vec<String> = all_chunks.iter().map(|c| c.text.clone()).collect();
+        let vectors = embeddings::embed_batch(&texts)?;
 
-    // Index files with controlled parallelism to prevent memory exhaustion
-    #[cfg(feature = "parallel")]
-    {
-        use rayon::prelude::*;
+        // Phase 3: Insert all to database
+        println!("{} Storing vectors...", style("→").cyan());
+        let records: Vec<store::Record> = all_chunks
+            .iter()
+            .map(|c| store::Record {
+                id: uuid::Uuid::new_v4().to_string(),
+                path: c.path.clone(),
+                content: c.text.clone(),
+                start_line: c.start_line,
+                end_line: c.end_line,
+                chunk_index: c.chunk_index,
+                is_anchor: c.is_anchor,
+            })
+            .collect();
 
-        // Build a thread pool with limited parallelism
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(jobs.max(1))
-            .build()
-            .context("Failed to create thread pool")?;
-
-        pool.install(|| {
-            files.par_iter().for_each(|file| {
-                if let Err(e) = index_file(&db_path, &store_name, file, &path) {
-                    eprintln!("Error indexing {}: {}", file.display(), e);
-                }
-                pb.inc(1);
-            });
-        });
-    }
-
-    #[cfg(not(feature = "parallel"))]
-    {
-        for file in &files {
-            if let Err(e) = index_file(&db_path, &store_name, file, &path) {
-                eprintln!("Error indexing {}: {}", file.display(), e);
-            }
-            pb.inc(1);
+        // Insert in batches to avoid memory issues
+        const BATCH_SIZE: usize = 500;
+        for (batch_records, batch_vectors) in records
+            .chunks(BATCH_SIZE)
+            .zip(vectors.chunks(BATCH_SIZE))
+        {
+            store::insert_batch(&db_path, &store_name, batch_records, batch_vectors)?;
         }
     }
 
-    pb.finish_with_message("done");
+    #[cfg(not(feature = "embeddings"))]
+    {
+        let records: Vec<store::Record> = all_chunks
+            .iter()
+            .map(|c| store::Record {
+                id: uuid::Uuid::new_v4().to_string(),
+                path: c.path.clone(),
+                content: c.text.clone(),
+                start_line: c.start_line,
+                end_line: c.end_line,
+                chunk_index: c.chunk_index,
+                is_anchor: c.is_anchor,
+            })
+            .collect();
+
+        let vectors: Vec<Vec<f32>> = records.iter().map(|_| vec![0.0f32; 768]).collect();
+        store::insert_batch(&db_path, &store_name, &records, &vectors)?;
+    }
 
     let count = store::count(&db_path, &store_name)?;
     println!("{} Indexed {} chunks", style("✓").green(), count);
