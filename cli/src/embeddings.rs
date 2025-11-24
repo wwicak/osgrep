@@ -110,7 +110,14 @@ fn remote_embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
 
     let url = format!("{}/embeddings", config.base_url);
 
-    let response = ureq::post(&url)
+    // Use agent with timeout to prevent hanging
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(std::time::Duration::from_secs(60))
+        .timeout_write(std::time::Duration::from_secs(30))
+        .build();
+
+    let response = agent
+        .post(&url)
         .set("Authorization", &format!("Bearer {}", config.api_key))
         .set("Content-Type", "application/json")
         .set("HTTP-Referer", "https://github.com/wwicak/osgrep")
@@ -417,6 +424,17 @@ pub fn init() -> Result<()> {
             "  Using remote embeddings: {} ({})",
             config.model, config.base_url
         );
+
+        // Warn about models that may have compatibility issues
+        if config.model.contains("gemini") {
+            eprintln!(
+                "  Warning: Gemini models may have API compatibility issues."
+            );
+            eprintln!(
+                "  Consider using: osgrep config --model openai/text-embedding-3-small"
+            );
+        }
+
         Ok(())
     } else {
         #[cfg(feature = "embeddings")]
@@ -455,15 +473,21 @@ where
     F: FnMut(usize, usize), // (completed, total)
 {
     if is_remote() {
-        // Use remote API with small batches (some APIs have strict limits)
-        const BATCH_SIZE: usize = 20;
+        // Use remote API with small batches for better responsiveness
+        const BATCH_SIZE: usize = 10;
         let mut all_embeddings = Vec::with_capacity(texts.len());
         let total = texts.len();
 
-        for chunk in texts.chunks(BATCH_SIZE) {
+        for (batch_idx, chunk) in texts.chunks(BATCH_SIZE).enumerate() {
             let chunk_embeddings = remote_embed_batch(&chunk.to_vec())?;
             all_embeddings.extend(chunk_embeddings);
             progress(all_embeddings.len().min(total), total);
+
+            // Small delay between batches to avoid rate limiting
+            // Skip delay on last batch
+            if batch_idx > 0 && all_embeddings.len() < total {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
         }
 
         Ok(all_embeddings)
