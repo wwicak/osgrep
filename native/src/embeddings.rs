@@ -226,8 +226,7 @@ pub fn get_embedding_backend() -> String {
 pub fn init_embeddings(model_id: Option<String>) -> Result<bool> {
     #[cfg(feature = "embeddings")]
     {
-        let model_id =
-            model_id.unwrap_or_else(|| "BAAI/bge-base-en-v1.5".to_string());
+        let model_id = model_id.unwrap_or_else(|| "BAAI/bge-base-en-v1.5".to_string());
 
         // Check if Metal should be used
         let use_metal = cfg!(all(target_os = "macos", feature = "metal"));

@@ -11,7 +11,7 @@ use std::sync::{Mutex, OnceLock};
 
 #[cfg(feature = "sqlite")]
 use {
-    rusqlite::{params, Connection},
+    rusqlite::{ffi::sqlite3_auto_extension, params, Connection},
     sqlite_vec::sqlite3_vec_init,
 };
 
@@ -43,13 +43,14 @@ pub struct SearchResult {
 
 /// Open or create a vector store
 #[cfg(feature = "sqlite")]
+#[allow(clippy::missing_transmute_annotations)]
 pub fn open(db_path: &PathBuf, store_id: &str) -> Result<()> {
-    let conn = Connection::open(db_path).context("Failed to open database")?;
-
-    // Load sqlite-vec extension
+    // Register sqlite-vec as auto-extension before opening connection
     unsafe {
-        sqlite3_vec_init();
+        sqlite3_auto_extension(Some(std::mem::transmute(sqlite3_vec_init as *const ())));
     }
+
+    let conn = Connection::open(db_path).context("Failed to open database")?;
 
     // Create chunks table
     conn.execute(
