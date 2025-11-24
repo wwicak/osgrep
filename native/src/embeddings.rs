@@ -18,7 +18,7 @@ use {
     candle_core::{DType, Device, Tensor},
     candle_nn::VarBuilder,
     candle_transformers::models::bert::{BertModel, Config, HiddenAct, DTYPE},
-    hf_hub::{api::sync::Api, Repo, RepoType},
+    hf_hub::{api::sync::ApiBuilder, Repo, RepoType},
     std::path::PathBuf,
     tokenizers::{PaddingParams, PaddingStrategy, Tokenizer, TruncationParams},
 };
@@ -51,7 +51,7 @@ impl EmbeddingModel {
         };
 
         // Download model from HuggingFace Hub
-        let api = Api::new().map_err(|e| Error::from_reason(format!("HF API error: {}", e)))?;
+        let api = ApiBuilder::from_env().build().map_err(|e| Error::from_reason(format!("HF API error: {}", e)))?;
         let repo = api.repo(Repo::new(model_id.to_string(), RepoType::Model));
 
         let config_path = repo
