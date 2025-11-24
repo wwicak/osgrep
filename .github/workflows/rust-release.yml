@@ -42,7 +42,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: win32-x64
-            features: sqlite,parallel
+            features: embeddings,sqlite,parallel
 
     runs-on: ${{ matrix.os }}
     name: Build ${{ matrix.name }}
