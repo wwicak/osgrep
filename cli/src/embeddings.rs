@@ -45,7 +45,9 @@ impl EmbeddingModel {
 
         // BGE model - excellent for code retrieval, BERT-compatible
         let model_id = "BAAI/bge-base-en-v1.5";
-        let api = ApiBuilder::from_env().build().map_err(|e| anyhow::anyhow!("HF API error: {}", e))?;
+        let api = ApiBuilder::from_env()
+            .build()
+            .map_err(|e| anyhow::anyhow!("HF API error: {}", e))?;
         let repo = api.repo(Repo::new(model_id.to_string(), RepoType::Model));
 
         let config_path = repo
