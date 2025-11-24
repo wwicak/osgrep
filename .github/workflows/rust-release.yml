@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - rust
+      - devel
       - 'claude/rust-rewrite-*'
     tags: ['v*']
   pull_request:
-    branches: [rust, main]
+    branches: [rust, main, devel]
   workflow_dispatch:
 
 env:
