@@ -19,7 +19,7 @@ Natural-language search that works like `grep`. Native Rust implementation with 
 #### Apple Silicon (M1/M2/M3/M4) - Recommended
 ```bash
 # Download and install
-curl -LO https://github.com/Ryandonofrio3/osgrep/releases/latest/download/osgrep-darwin-arm64.tar.gz
+curl -LO https://github.com/wwicak/osgrep/releases/latest/download/osgrep-darwin-arm64.tar.gz
 tar xzf osgrep-darwin-arm64.tar.gz
 sudo mv osgrep osgrep-mcp /usr/local/bin/
 
@@ -29,7 +29,7 @@ osgrep info
 
 #### Intel Mac
 ```bash
-curl -LO https://github.com/Ryandonofrio3/osgrep/releases/latest/download/osgrep-darwin-x64.tar.gz
+curl -LO https://github.com/wwicak/osgrep/releases/latest/download/osgrep-darwin-x64.tar.gz
 tar xzf osgrep-darwin-x64.tar.gz
 sudo mv osgrep osgrep-mcp /usr/local/bin/
 ```
@@ -41,7 +41,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
 # Clone and build
-git clone https://github.com/Ryandonofrio3/osgrep
+git clone https://github.com/wwicak/osgrep
 cd osgrep
 
 # Apple Silicon: Build with Metal GPU acceleration
@@ -62,7 +62,7 @@ sudo cp target/release/osgrep /usr/local/bin/
 New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\osgrep"
 
 # Download and extract
-Invoke-WebRequest -Uri "https://github.com/Ryandonofrio3/osgrep/releases/latest/download/osgrep-win32-x64.zip" -OutFile "$env:TEMP\osgrep.zip"
+Invoke-WebRequest -Uri "https://github.com/wwicak/osgrep/releases/latest/download/osgrep-win32-x64.zip" -OutFile "$env:TEMP\osgrep.zip"
 Expand-Archive -Path "$env:TEMP\osgrep.zip" -DestinationPath "$env:LOCALAPPDATA\osgrep" -Force
 
 # Add to PATH permanently (run as Administrator or add manually)
@@ -78,7 +78,7 @@ osgrep info
 # Install Visual Studio Build Tools with "Desktop development with C++"
 
 # Clone and build
-git clone https://github.com/Ryandonofrio3/osgrep
+git clone https://github.com/wwicak/osgrep
 cd osgrep
 cargo build --release -p osgrep --features embeddings,sqlite,parallel
 
@@ -90,7 +90,7 @@ Copy-Item target\release\osgrep.exe $env:LOCALAPPDATA\osgrep\
 
 ```bash
 # Download and install
-curl -LO https://github.com/Ryandonofrio3/osgrep/releases/latest/download/osgrep-linux-x64.tar.gz
+curl -LO https://github.com/wwicak/osgrep/releases/latest/download/osgrep-linux-x64.tar.gz
 tar xzf osgrep-linux-x64.tar.gz
 sudo mv osgrep osgrep-mcp /usr/local/bin/
 
@@ -105,7 +105,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
 # Clone and build
-git clone https://github.com/Ryandonofrio3/osgrep
+git clone https://github.com/wwicak/osgrep
 cd osgrep
 cargo build --release -p osgrep --features embeddings,sqlite,parallel
 
