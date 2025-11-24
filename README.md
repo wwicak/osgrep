@@ -1,48 +1,163 @@
 <div align="center">
   <h1>osgrep</h1>
-  <p><em>Semantic search for your codebase.</em></p>
+  <p><em>Ultra-fast semantic code search with native SIMD acceleration.</em></p>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a><br>
 </div>
 
-Natural-language search that works like `grep`. Fast, local, and works with coding agents.
+Natural-language search that works like `grep`. Native Rust implementation with SIMD-optimized vector operations.
 
 - **Semantic:** Finds concepts ("auth logic"), not just strings.
-- **Local & Private:** 100% local embeddings via `transformers.js`.
-- **Auto-Isolated:** Each repository gets its own index automatically.
-- **Adaptive:** Runs fast on desktops, throttles down on laptops to prevent overheating.
-- **Agent-Ready:** Native integration with Claude Code.
+- **Native Performance:** Pure Rust with AVX-512/AVX2/NEON SIMD acceleration.
+- **Local & Private:** 100% local embeddings via Candle ML (with Metal GPU on Apple Silicon).
+- **Lightweight:** SQLite-Vec storage, no heavy dependencies.
+- **Agent-Ready:** MCP server for Claude Code integration.
+
+## Installation
+
+### macOS (Apple Silicon / Intel)
+
+**Option 1: Pre-built Binary (Recommended)**
+```bash
+# Download latest release
+curl -LO https://github.com/your-org/osgrep/releases/latest/download/osgrep-darwin-arm64.tar.gz
+tar xzf osgrep-darwin-arm64.tar.gz
+sudo mv osgrep /usr/local/bin/
+
+# For Intel Macs, use osgrep-darwin-x64.tar.gz
+```
+
+**Option 2: Build from Source**
+```bash
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Clone and build
+git clone https://github.com/your-org/osgrep
+cd osgrep
+git checkout rust
+
+# Build with Metal GPU acceleration (M1/M2/M3)
+cargo build --release -p osgrep --features embeddings,metal,sqlite,parallel
+
+# Or build without embeddings (uses external embedding service)
+cargo build --release -p osgrep --features sqlite,parallel
+
+# Install
+sudo cp target/release/osgrep /usr/local/bin/
+```
+
+### Windows
+
+**Option 1: Pre-built Binary (Recommended)**
+```powershell
+# Download from releases page
+Invoke-WebRequest -Uri "https://github.com/your-org/osgrep/releases/latest/download/osgrep-win32-x64.zip" -OutFile osgrep.zip
+Expand-Archive osgrep.zip -DestinationPath $env:LOCALAPPDATA\osgrep
+$env:PATH += ";$env:LOCALAPPDATA\osgrep"
+```
+
+**Option 2: Build from Source**
+```powershell
+# Install Rust from https://rustup.rs
+
+# Clone and build
+git clone https://github.com/your-org/osgrep
+cd osgrep
+git checkout rust
+
+# Build with SQLite and parallel processing
+cargo build --release -p osgrep --features sqlite,parallel
+
+# Copy to PATH
+copy target\release\osgrep.exe $env:LOCALAPPDATA\osgrep\
+```
+
+### Linux
+
+```bash
+# Download latest release
+curl -LO https://github.com/your-org/osgrep/releases/latest/download/osgrep-linux-x64.tar.gz
+tar xzf osgrep-linux-x64.tar.gz
+sudo mv osgrep /usr/local/bin/
+```
 
 ## Quick Start
 
-1. **Install**
-   ```bash
-   npm install -g osgrep    # or pnpm / bun
-   ```
+```bash
+# Index your codebase
+cd my-repo
+osgrep index
 
-2.  **Setup (Recommended)**
+# Search semantically
+osgrep search "where do we handle authentication?"
 
-    ```bash
-    osgrep setup
-    ```
+# Show system info (SIMD level, features)
+osgrep info
+```
 
-    Downloads embedding models (~150MB) upfront. If you skip this, models download automatically on first use.
+## Claude Code Integration
 
-3.  **Search**
+osgrep integrates with Claude Code as an MCP (Model Context Protocol) server, providing semantic search tools that replace traditional grep/find operations.
 
-    ```bash
-    cd my-repo
-    osgrep "where do we handle authentication?"
-    ```
+### Installation
 
-    **Your first search will automatically index the repository.** Each repository is automatically isolated with its own index. Switching between repos "just works" — no manual configuration needed. If the background server is running (`osgrep serve`), search goes through the hot daemon; otherwise it falls back to on-demand indexing.
+**Option 1: Automatic Setup**
+```bash
+osgrep install-claude-code
+```
 
-## Coding Agent Integration
+**Option 2: Manual Setup**
 
-**Claude Code**
+1. Build the MCP server:
+```bash
+cargo build --release -p osgrep-mcp
+```
 
-1. Run `osgrep install-claude-code`
-2. Open Claude Code (`claude`) and ask it questions about your codebase.
-3. The plugin’s hooks auto-start `osgrep serve` in the background and shut it down on session end. Claude will use `osgrep --json` via Bash for semantic searches automatically.
+2. Add to your Claude Code MCP settings (`~/.claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "osgrep": {
+      "command": "/usr/local/bin/osgrep-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+On Windows, use the full path:
+```json
+{
+  "mcpServers": {
+    "osgrep": {
+      "command": "C:\\Users\\YOU\\AppData\\Local\\osgrep\\osgrep-mcp.exe",
+      "args": []
+    }
+  }
+}
+```
+
+### Available Tools
+
+Once configured, Claude Code has access to:
+
+| Tool | Description |
+|------|-------------|
+| `semantic_search` | Search code by meaning (replaces grep for conceptual queries) |
+| `index_directory` | Index a codebase for semantic search |
+| `get_simd_info` | Show SIMD capabilities and version |
+
+### Usage in Claude Code
+
+Ask Claude natural language questions about your codebase:
+
+```
+"Where is authentication handled?"
+"How does the rate limiting work?"
+"Find the database connection pooling logic"
+```
+
+Claude will automatically use osgrep's semantic search instead of traditional grep when appropriate.
 
 ## Commands
 

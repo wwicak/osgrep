@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "native",      # Node.js addon (backward compat)
     "cli",         # Native CLI binary
+    "mcp",         # MCP server for Claude Code
 ]
 
 [workspace.package]
