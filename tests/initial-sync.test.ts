@@ -107,13 +107,7 @@ describe("initialSync edge cases", () => {
     const store = new FakeStore();
     const fsStub = new StubFileSystem([]);
 
-    const result = await initialSync(
-      store,
-      fsStub,
-      "store",
-      tempRoot,
-      false,
-    );
+    const result = await initialSync(store, fsStub, "store", tempRoot, false);
 
     expect(result.total).toBe(0);
     expect(result.indexed).toBe(0);
@@ -129,13 +123,7 @@ describe("initialSync edge cases", () => {
 
     const fsStub = new StubFileSystem([ignoredFile], new Set([ignoredFile]));
 
-    const result = await initialSync(
-      store,
-      fsStub,
-      "store",
-      tempRoot,
-      false,
-    );
+    const result = await initialSync(store, fsStub, "store", tempRoot, false);
 
     expect(result.total).toBe(0);
     expect(result.indexed).toBe(0);

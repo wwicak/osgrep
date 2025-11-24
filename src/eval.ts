@@ -288,13 +288,15 @@ export function evaluateCase(
 
 async function run() {
   const store = new LocalStore();
-  
+
   // 1. Ensure the store exists
   try {
     await store.retrieve(storeId);
   } catch {
     console.error(`❌ Store "${storeId}" does not exist!`);
-    console.error(`   Run "osgrep index" first to create and populate the store.`);
+    console.error(
+      `   Run "osgrep index" first to create and populate the store.`,
+    );
     process.exit(1);
   }
 

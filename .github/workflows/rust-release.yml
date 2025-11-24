@@ -1,0 +1,172 @@
+name: Build Native Binaries
+
+on:
+  push:
+    branches: [rust]
+    tags: ['v*']
+  pull_request:
+    branches: [rust]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS ARM64 (Apple Silicon) with Metal
+          - os: macos-14
+            target: aarch64-apple-darwin
+            name: darwin-arm64
+            features: embeddings,metal,sqlite,parallel
+
+          # macOS x86_64 (Intel)
+          - os: macos-13
+            target: x86_64-apple-darwin
+            name: darwin-x64
+            features: embeddings,sqlite,parallel
+
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux-x64
+            features: embeddings,sqlite,parallel
+
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: win32-x64
+            features: sqlite,parallel
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+
+      - name: Build CLI
+        run: |
+          cargo build --release -p osgrep --target ${{ matrix.target }} --features ${{ matrix.features }}
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.target }}
+
+      - name: Build MCP Server
+        run: |
+          cargo build --release -p osgrep-mcp --target ${{ matrix.target }}
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/osgrep dist/
+          cp target/${{ matrix.target }}/release/osgrep-mcp dist/
+          cd dist && tar -czf osgrep-${{ matrix.name }}.tar.gz osgrep osgrep-mcp
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist
+          copy target\${{ matrix.target }}\release\osgrep.exe dist\
+          copy target\${{ matrix.target }}\release\osgrep-mcp.exe dist\
+          Compress-Archive -Path dist\osgrep.exe,dist\osgrep-mcp.exe -DestinationPath dist\osgrep-${{ matrix.name }}.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: osgrep-${{ matrix.name }}
+          path: |
+            dist/osgrep-*.tar.gz
+            dist/osgrep-*.zip
+          if-no-files-found: error
+
+  # Lightweight build for testing (no embeddings)
+  build-minimal:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+    name: Test minimal build (${{ matrix.os }})
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build minimal
+        run: cargo build --release -p osgrep --features sqlite
+
+      - name: Run tests
+        run: cargo test -p osgrep
+
+  # Create release on tag push
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/osgrep-darwin-arm64/*.tar.gz
+            artifacts/osgrep-darwin-x64/*.tar.gz
+            artifacts/osgrep-linux-x64/*.tar.gz
+            artifacts/osgrep-win32-x64/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+  # Rust code quality checks
+  quality:
+    runs-on: ubuntu-latest
+    name: Code quality
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy -p osgrep -p osgrep-mcp --features sqlite,parallel -- -D warnings

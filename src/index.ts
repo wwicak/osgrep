@@ -6,8 +6,8 @@ import { doctor } from "./commands/doctor";
 import { index } from "./commands/index";
 import { list } from "./commands/list";
 import { search } from "./commands/search";
-import { setup } from "./commands/setup";
 import { serve } from "./commands/serve";
+import { setup } from "./commands/setup";
 import { installClaudeCode } from "./install/claude-code";
 
 // utility functions moved to ./utils

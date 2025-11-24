@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Command } from "commander";
+import type { Command } from "commander";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const spinner = {
   text: "",
@@ -8,7 +8,9 @@ const spinner = {
 };
 
 const mockStore = {
-  search: vi.fn(async () => ({ data: [{ metadata: { path: "/repo/file.ts" }, score: 1, type: "text" }] })),
+  search: vi.fn(async () => ({
+    data: [{ metadata: { path: "/repo/file.ts" }, score: 1, type: "text" }],
+  })),
   getInfo: vi.fn(async () => ({ counts: { pending: 0, in_progress: 0 } })),
   close: vi.fn(async () => {}),
 };
@@ -57,8 +59,8 @@ vi.mock("../src/utils", () => ({
 }));
 
 import { search } from "../src/commands/search";
-import { initialSync } from "../src/utils";
 import { isStoreEmpty } from "../src/lib/store-helpers";
+import { initialSync } from "../src/utils";
 
 describe("search command", () => {
   const originalCwd = process.cwd();

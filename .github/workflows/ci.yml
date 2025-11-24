@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   ci:
@@ -29,11 +29,28 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check formatting
+        run: pnpm run format:check
+
       - name: Check types
         run: pnpm run typecheck
 
-      - name: Run tests
+      - name: Run tests (JS fallback mode)
         run: pnpm run test
+
+      - name: Verify SIMD fallback works
+        run: |
+          node -e "
+            const simd = require('./src/lib/simd');
+            console.log('Native available:', simd.isNativeAvailable());
+            console.log('SIMD level:', simd.getSimdLevel());
+            const result = simd.benchmark(1000);
+            console.log('Benchmark (JS fallback):', result);
+            if (result.opsPerSecond < 100000) {
+              console.error('Performance too low!');
+              process.exit(1);
+            }
+          "
 
       - name: Build
         run: pnpm run build

@@ -1,0 +1,6 @@
+# Build with native CPU features for maximum performance
+# Uncomment for local development:
+# [build]
+# rustflags = ["-C", "target-cpu=native"]
+
+# Release profile optimizations are in Cargo.toml

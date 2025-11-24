@@ -174,11 +174,11 @@ async function runBenchmark(
       });
       const rgOutput = rgProcess.stdout || "";
       const rgLines = rgOutput.trim().split("\n");
-      
+
       // Parse count output (format: filename:count)
       let totalMatches = 0;
       let firstFile = "no matches";
-      
+
       for (const line of rgLines) {
         if (line && line.includes(":")) {
           const [file, countStr] = line.split(":");
@@ -191,7 +191,7 @@ async function runBenchmark(
           }
         }
       }
-      
+
       rgResult = {
         matchCount: totalMatches,
         topFile: firstFile,
@@ -215,7 +215,7 @@ async function runBenchmark(
       });
       const grepOutput = grepProcess.stdout || "";
       const grepLines = grepOutput.trim().split("\n");
-      
+
       // Parse count output (format: filename:count)
       let totalMatches = 0;
       for (const line of grepLines) {
@@ -227,7 +227,7 @@ async function runBenchmark(
           }
         }
       }
-      
+
       grepResult = { matchCount: totalMatches };
     } catch {
       grepResult = { matchCount: 0 };

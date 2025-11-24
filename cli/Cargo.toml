@@ -1,0 +1,63 @@
+[package]
+name = "osgrep"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ultra-fast semantic code search"
+readme = "../README.md"
+
+[[bin]]
+name = "osgrep"
+path = "src/main.rs"
+
+[features]
+default = ["sqlite", "parallel"]
+parallel = ["rayon"]
+embeddings = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+sqlite = ["rusqlite", "sqlite-vec"]
+full = ["embeddings", "sqlite", "parallel"]
+
+[dependencies]
+# CLI
+clap = { workspace = true }
+indicatif = { workspace = true }
+console = { workspace = true }
+
+# Storage
+rusqlite = { workspace = true, optional = true }
+sqlite-vec = { workspace = true, optional = true }
+
+# Embeddings
+candle-core = { workspace = true, optional = true }
+candle-nn = { workspace = true, optional = true }
+candle-transformers = { workspace = true, optional = true }
+tokenizers = { workspace = true, optional = true }
+hf-hub = { workspace = true, optional = true }
+
+# Tree-sitter
+tree-sitter = { workspace = true }
+tree-sitter-rust = { workspace = true }
+tree-sitter-javascript = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-python = { workspace = true }
+tree-sitter-go = { workspace = true }
+tree-sitter-c = { workspace = true }
+tree-sitter-cpp = { workspace = true }
+tree-sitter-java = { workspace = true }
+
+# File system
+notify = { workspace = true }
+ignore = { workspace = true }
+walkdir = { workspace = true }
+
+# Parallel
+rayon = { workspace = true, optional = true }
+
+# Utilities
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }

@@ -1,46 +1,65 @@
 ---
 name: osgrep
-description: Semantic search for local files. Backed by a background osgrep server with live indexing. Always use osgrep instead of grep/find.
+description: Ultra-fast semantic code search with SIMD acceleration. Native Rust implementation. Use instead of grep/find for conceptual searches.
 license: Apache-2.0
 ---
 
 ## When to use
 
-Use `osgrep` for all code and concept discovery. Do not use `grep` or `find` unless you must match an exact string and `osgrep` fails.
+Use `osgrep` for all **conceptual** code discovery:
+- "Where is authentication handled?"
+- "How does rate limiting work?"
+- "Find error handling logic"
+
+Use `grep` only for **exact string matches** when osgrep doesn't find results.
 
 ## How to use
 
-**Always use the `--json` flag.** The server auto-starts and keeps the index fresh.
+**Always use `--json` flag.** Results are fast (<50ms with hot index).
 
 ### Basic Search
 
-Ask a natural language question. Do not `ls` first.
-
 ```bash
-osgrep --json "How are user authentication tokens validated?"
-osgrep --json "Where do we handle retries or backoff?"
+osgrep search --json "How are user authentication tokens validated?"
+osgrep search --json "Where do we handle retries or backoff?"
 ```
 
 ### Scoped Search
 
-Limit search to a specific directory.
-
 ```bash
-osgrep --json "auth middleware" src/api
+osgrep search --json "auth middleware" --path src/api
 ```
 
-### Helpful flags
+### First-time Setup
 
-- `--json`: **Required.** Returns structured data (path, line, score, content).
-- `-m <n>`: Max total results (default: 25).
-- `--per-file <n>`: Max matches per file (default: 1). Use `--per-file 5` when exploring a specific file.
+Index the codebase first (one-time, ~30s for medium repo):
+
+```bash
+osgrep index
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | **Required.** JSON output for parsing |
+| `-k <n>` | Max results (default: 10) |
+| `--path <prefix>` | Filter by path prefix |
+| `--name <store>` | Use specific store name |
 
 ### Strategy
 
-1. Run `osgrep --json "<question>" [path]`.
-2. The output is a dense JSON snippet. If it answers the question, stop.
-3. Only use `Read` if you need the full file context for a returned path.
-4. If results are vague, refine the query or increase `-m`.
+1. Run `osgrep search --json "<question>"`.
+2. Parse JSON results: `[{path, score, start_line, end_line, content}]`
+3. Use `Read` only if you need more context from a specific file.
+4. Increase `-k` if results seem incomplete.
+
+### Performance
+
+- **SIMD-accelerated**: AVX-512/AVX2/NEON vector operations
+- **Native embeddings**: Candle ML (Metal GPU on Apple Silicon)
+- **SQLite-Vec**: Lightweight vector storage
+- **Hot index**: Sub-50ms searches after first index
 
 ## Keywords
-semantic search, code search, local search, grep alternative, find code, explore codebase, understand code, search by meaning
+semantic search, code search, local search, grep alternative, find code, explore codebase, understand code, search by meaning, SIMD, native, fast

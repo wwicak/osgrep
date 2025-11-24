@@ -1,13 +1,13 @@
 import { Command } from "commander";
 import { createFileSystem, createStore } from "../lib/context";
 import { ensureSetup } from "../lib/setup-helpers";
+import type { Store } from "../lib/store";
 import { ensureStoreExists } from "../lib/store-helpers";
 import { getAutoStoreId } from "../lib/store-resolver";
 import {
   createIndexingSpinner,
   formatDryRunSummary,
 } from "../lib/sync-helpers";
-import type { Store } from "../lib/store";
 import { initialSync, MetaStore } from "../utils";
 
 const PROFILE_ENABLED =
@@ -33,11 +33,11 @@ export const index = new Command("index")
     try {
       await ensureSetup();
       store = await createStore();
-      
+
       // Auto-detect store ID if not explicitly provided
       const indexRoot = options.path || process.cwd();
       const storeId = options.store || getAutoStoreId(indexRoot);
-      
+
       await ensureStoreExists(store, storeId);
       const fileSystem = createFileSystem({
         ignorePatterns: [
