@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "embeddings")]
 use {
-    candle_core::{DType, Device, Tensor},
+    candle_core::{Device, Tensor},
     candle_nn::VarBuilder,
     candle_transformers::models::bert::{BertModel, Config, DTYPE},
     hf_hub::{api::sync::Api, Repo, RepoType},
@@ -42,21 +42,24 @@ impl EmbeddingModel {
         };
 
         let model_id = "sentence-transformers/all-MiniLM-L6-v2";
-        let api = Api::new().context("HF API error")?;
+        let api = Api::new().map_err(|e| anyhow::anyhow!("HF API error: {}", e))?;
         let repo = api.repo(Repo::new(model_id.to_string(), RepoType::Model));
 
-        let config_path = repo.get("config.json").context("Failed to get config")?;
+        let config_path = repo
+            .get("config.json")
+            .map_err(|e| anyhow::anyhow!("Failed to get config: {}", e))?;
         let tokenizer_path = repo
             .get("tokenizer.json")
-            .context("Failed to get tokenizer")?;
+            .map_err(|e| anyhow::anyhow!("Failed to get tokenizer: {}", e))?;
         let weights_path = repo
             .get("model.safetensors")
-            .context("Failed to get weights")?;
+            .map_err(|e| anyhow::anyhow!("Failed to get weights: {}", e))?;
 
         let config: Config = serde_json::from_str(
-            &std::fs::read_to_string(&config_path).context("Failed to read config")?,
+            &std::fs::read_to_string(&config_path)
+                .map_err(|e| anyhow::anyhow!("Failed to read config: {}", e))?,
         )
-        .context("Failed to parse config")?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse config: {}", e))?;
 
         let dim = config.hidden_size;
 
@@ -76,10 +79,11 @@ impl EmbeddingModel {
 
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&[weights_path], DTYPE, &device)
-                .context("Failed to load weights")?
+                .map_err(|e| anyhow::anyhow!("Failed to load weights: {}", e))?
         };
 
-        let model = BertModel::load(vb, &config).context("Failed to load model")?;
+        let model = BertModel::load(vb, &config)
+            .map_err(|e| anyhow::anyhow!("Failed to load model: {}", e))?;
 
         Ok(Self {
             model,
@@ -99,49 +103,63 @@ impl EmbeddingModel {
             .encode_batch(texts.to_vec(), true)
             .map_err(|e| anyhow::anyhow!("Tokenization error: {}", e))?;
 
-        let batch_size = encodings.len();
-        let seq_len = encodings[0].get_ids().len();
+        let input_ids: Vec<Vec<u32>> = encodings.iter().map(|e| e.get_ids().to_vec()).collect();
 
-        let mut input_ids = Vec::with_capacity(batch_size * seq_len);
-        let mut attention_mask = Vec::with_capacity(batch_size * seq_len);
-        let mut token_type_ids = Vec::with_capacity(batch_size * seq_len);
+        let attention_mask: Vec<Vec<u32>> = encodings
+            .iter()
+            .map(|e| e.get_attention_mask().to_vec())
+            .collect();
 
-        for encoding in &encodings {
-            input_ids.extend(encoding.get_ids().iter().map(|&x| x as i64));
-            attention_mask.extend(encoding.get_attention_mask().iter().map(|&x| x as i64));
-            token_type_ids.extend(encoding.get_type_ids().iter().map(|&x| x as i64));
-        }
+        let batch_size = input_ids.len();
+        let seq_len = input_ids[0].len();
 
-        let input_ids = Tensor::from_vec(input_ids, (batch_size, seq_len), &self.device)?;
-        let attention_mask = Tensor::from_vec(attention_mask, (batch_size, seq_len), &self.device)?;
-        let token_type_ids = Tensor::from_vec(token_type_ids, (batch_size, seq_len), &self.device)?;
+        let input_ids_flat: Vec<u32> = input_ids.into_iter().flatten().collect();
+        let attention_mask_flat: Vec<u32> = attention_mask.into_iter().flatten().collect();
+
+        let input_ids_tensor =
+            Tensor::from_vec(input_ids_flat, (batch_size, seq_len), &self.device)
+                .map_err(|e| anyhow::anyhow!("Input tensor error: {}", e))?;
+
+        let attention_mask_tensor =
+            Tensor::from_vec(attention_mask_flat, (batch_size, seq_len), &self.device)
+                .map_err(|e| anyhow::anyhow!("Attention mask tensor error: {}", e))?;
+
+        let token_type_ids =
+            Tensor::zeros((batch_size, seq_len), candle_core::DType::U32, &self.device)
+                .map_err(|e| anyhow::anyhow!("Token type tensor error: {}", e))?;
 
         let embeddings = self
             .model
-            .forward(&input_ids, &token_type_ids, Some(&attention_mask))?;
+            .forward(
+                &input_ids_tensor,
+                &token_type_ids,
+                Some(&attention_mask_tensor),
+            )
+            .map_err(|e| anyhow::anyhow!("Model forward error: {}", e))?;
 
         // Mean pooling
-        let mask_expanded = attention_mask
-            .unsqueeze(2)?
-            .broadcast_as(embeddings.shape())?
-            .to_dtype(embeddings.dtype())?;
+        let mask = attention_mask_tensor
+            .unsqueeze(2)
+            .map_err(|e| anyhow::anyhow!("Unsqueeze error: {}", e))?
+            .to_dtype(embeddings.dtype())
+            .map_err(|e| anyhow::anyhow!("Dtype error: {}", e))?;
 
-        let masked = (&embeddings * &mask_expanded)?;
-        let sum = masked.sum(1)?;
-        let count = mask_expanded.sum(1)?.clamp(1e-9, f64::MAX)?;
-        let pooled = (&sum / &count)?;
+        let masked = embeddings
+            .broadcast_mul(&mask)
+            .map_err(|e| anyhow::anyhow!("Broadcast mul error: {}", e))?;
+        let summed = masked
+            .sum(1)
+            .map_err(|e| anyhow::anyhow!("Sum error: {}", e))?;
+        let counts = mask
+            .sum(1)
+            .map_err(|e| anyhow::anyhow!("Count error: {}", e))?;
+        let pooled = summed
+            .broadcast_div(&counts)
+            .map_err(|e| anyhow::anyhow!("Div error: {}", e))?;
 
-        // L2 normalize
-        let norm = pooled
-            .sqr()?
-            .sum_keepdim(1)?
-            .sqrt()?
-            .clamp(1e-9, f64::MAX)?;
-        let normalized = (&pooled / &norm)?;
-
-        let flat: Vec<f32> = normalized
-            .to_dtype(DType::F32)?
-            .to_vec2()?
+        let flat: Vec<f32> = pooled
+            .to_vec2::<f32>()
+            .map_err(|e| anyhow::anyhow!("To vec error: {}", e))?
             .into_iter()
             .flatten()
             .collect();
@@ -152,7 +170,10 @@ impl EmbeddingModel {
 /// Initialize the embedding model
 #[cfg(feature = "embeddings")]
 pub fn init() -> Result<()> {
-    MODEL.get_or_try_init(EmbeddingModel::new)?;
+    if MODEL.get().is_none() {
+        let model = EmbeddingModel::new()?;
+        let _ = MODEL.set(model);
+    }
     Ok(())
 }
 
@@ -165,8 +186,9 @@ pub fn init() -> Result<()> {
 /// Embed a single text
 #[cfg(feature = "embeddings")]
 pub fn embed(text: &str) -> Result<Vec<f32>> {
-    use anyhow::Context;
-    let model = MODEL.get().context("Model not initialized")?;
+    let model = MODEL
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("Model not initialized"))?;
     let embeddings = model.embed_batch(&[text.to_string()])?;
     Ok(embeddings.into_iter().next().unwrap_or_default())
 }
@@ -180,14 +202,15 @@ pub fn embed(_text: &str) -> Result<Vec<f32>> {
 /// Embed multiple texts (batch processing)
 #[cfg(feature = "embeddings")]
 pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    use anyhow::Context;
-    let model = MODEL.get().context("Model not initialized")?;
+    let model = MODEL
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("Model not initialized"))?;
 
     const CHUNK_SIZE: usize = 32;
     let mut all_embeddings = Vec::with_capacity(texts.len());
 
     for chunk in texts.chunks(CHUNK_SIZE) {
-        let chunk_embeddings = model.embed_batch(&chunk.to_vec())?;
+        let chunk_embeddings = model.embed_batch(chunk)?;
         all_embeddings.extend(chunk_embeddings);
     }
 
