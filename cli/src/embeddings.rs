@@ -106,17 +106,45 @@ fn remote_embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
         .set("Content-Type", "application/json")
         .set("HTTP-Referer", "https://github.com/osgrep/osgrep")
         .set("X-Title", "osgrep")
-        .send_json(&request_body)
-        .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
+        .send_json(&request_body);
+
+    // Handle HTTP errors
+    let response = match response {
+        Ok(r) => r,
+        Err(ureq::Error::Status(code, response)) => {
+            let body = response.into_string().unwrap_or_else(|_| "unknown".to_string());
+            return Err(anyhow::anyhow!(
+                "API error (HTTP {}): {}",
+                code,
+                body.chars().take(500).collect::<String>()
+            ));
+        }
+        Err(e) => return Err(anyhow::anyhow!("API request failed: {}", e)),
+    };
 
     let response_body: serde_json::Value = response
         .into_json()
         .map_err(|e| anyhow::anyhow!("Failed to parse API response: {}", e))?;
 
+    // Check for error in response
+    if let Some(error) = response_body.get("error") {
+        let msg = error["message"].as_str().unwrap_or("Unknown error");
+        return Err(anyhow::anyhow!("API error: {}", msg));
+    }
+
     // Extract embeddings from response
     let data = response_body["data"]
         .as_array()
-        .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing 'data' array"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Invalid API response: missing 'data' array. Response: {}",
+                serde_json::to_string_pretty(&response_body)
+                    .unwrap_or_else(|_| "unparseable".to_string())
+                    .chars()
+                    .take(500)
+                    .collect::<String>()
+            )
+        })?;
 
     let mut embeddings = Vec::with_capacity(texts.len());
     for item in data {
@@ -371,14 +399,24 @@ pub fn embed(text: &str) -> Result<Vec<f32>> {
 
 /// Embed multiple texts (batch processing)
 pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    if is_remote() {
-        // Use remote API with batching (most APIs support up to 2048 inputs)
-        const BATCH_SIZE: usize = 100; // Conservative batch size for API
-        let mut all_embeddings = Vec::with_capacity(texts.len());
+    embed_batch_with_progress(texts, |_, _| {})
+}
 
-        for chunk in texts.chunks(BATCH_SIZE) {
+/// Embed multiple texts with progress callback
+pub fn embed_batch_with_progress<F>(texts: &[String], mut progress: F) -> Result<Vec<Vec<f32>>>
+where
+    F: FnMut(usize, usize), // (completed, total)
+{
+    if is_remote() {
+        // Use remote API with small batches (some APIs like Gemini have strict limits)
+        const BATCH_SIZE: usize = 20; // Small batch for API rate limits
+        let mut all_embeddings = Vec::with_capacity(texts.len());
+        let total = texts.len();
+
+        for (i, chunk) in texts.chunks(BATCH_SIZE).enumerate() {
             let chunk_embeddings = remote_embed_batch(&chunk.to_vec())?;
             all_embeddings.extend(chunk_embeddings);
+            progress((i + 1) * BATCH_SIZE.min(total - i * BATCH_SIZE), total);
         }
 
         Ok(all_embeddings)
