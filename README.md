@@ -310,7 +310,7 @@ osgrep config --init
   "embedding": {
     "provider": "openrouter",
     "api_key": "sk-or-v1-YOUR_API_KEY_HERE",
-    "model": "google/gemini-embedding-001",
+    "model": "openai/text-embedding-3-small",
     "base_url": "https://openrouter.ai/api/v1"
   }
 }
@@ -320,7 +320,7 @@ osgrep config --init
 ```bash
 osgrep config --provider openrouter
 osgrep config --api-key sk-or-v1-...
-osgrep config --model google/gemini-embedding-001
+osgrep config --model openai/text-embedding-3-small
 ```
 
 #### Config Commands
@@ -348,8 +348,9 @@ osgrep config --model google/gemini-embedding-001
 
 | Model | Provider | Dimensions | Notes |
 |-------|----------|------------|-------|
-| `google/gemini-embedding-001` | OpenRouter | 768 | Fast, good quality |
-| `text-embedding-3-small` | OpenAI | 1536 | Good balance |
+| `openai/text-embedding-3-small` | OpenRouter | 1536 | Default, good balance |
+| `openai/text-embedding-3-large` | OpenRouter | 3072 | Higher quality |
+| `text-embedding-3-small` | OpenAI | 1536 | Direct OpenAI API |
 | `BAAI/bge-base-en-v1.5` | Local | 768 | Default local model |
 
 ### Automatic Repository Isolation

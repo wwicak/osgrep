@@ -279,58 +279,48 @@ fn cmd_index(path: PathBuf, name: Option<String>, watch: bool, jobs: usize) -> R
         return Ok(());
     }
 
-    // Phase 2: Batch embed all chunks (single GPU operation)
-    #[cfg(feature = "embeddings")]
+    // Phase 2: Generate embeddings (local or remote)
+    println!("{} Loading embedding model...", style("→").cyan());
+    embeddings::init()?;
+
+    println!("{} Generating embeddings for {} chunks...", style("→").cyan(), all_chunks.len());
+    let texts: Vec<String> = all_chunks.iter().map(|c| c.text.clone()).collect();
+
+    // Create progress bar for embedding generation
+    let embed_pb = ProgressBar::new(texts.len() as u64);
+    embed_pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} chunks ({eta})")?
+            .progress_chars("#>-"),
+    );
+
+    let vectors = embeddings::embed_batch_with_progress(&texts, |done, _total| {
+        embed_pb.set_position(done as u64);
+    })?;
+    embed_pb.finish_with_message("done");
+
+    // Phase 3: Insert all to database
+    println!("{} Storing vectors...", style("→").cyan());
+    let records: Vec<store::Record> = all_chunks
+        .iter()
+        .map(|c| store::Record {
+            id: uuid::Uuid::new_v4().to_string(),
+            path: c.path.clone(),
+            content: c.text.clone(),
+            start_line: c.start_line,
+            end_line: c.end_line,
+            chunk_index: c.chunk_index,
+            is_anchor: c.is_anchor,
+        })
+        .collect();
+
+    // Insert in batches to avoid memory issues
+    const BATCH_SIZE: usize = 500;
+    for (batch_records, batch_vectors) in records
+        .chunks(BATCH_SIZE)
+        .zip(vectors.chunks(BATCH_SIZE))
     {
-        println!("{} Loading embedding model...", style("→").cyan());
-        embeddings::init()?;
-
-        println!("{} Generating embeddings...", style("→").cyan());
-        let texts: Vec<String> = all_chunks.iter().map(|c| c.text.clone()).collect();
-        let vectors = embeddings::embed_batch(&texts)?;
-
-        // Phase 3: Insert all to database
-        println!("{} Storing vectors...", style("→").cyan());
-        let records: Vec<store::Record> = all_chunks
-            .iter()
-            .map(|c| store::Record {
-                id: uuid::Uuid::new_v4().to_string(),
-                path: c.path.clone(),
-                content: c.text.clone(),
-                start_line: c.start_line,
-                end_line: c.end_line,
-                chunk_index: c.chunk_index,
-                is_anchor: c.is_anchor,
-            })
-            .collect();
-
-        // Insert in batches to avoid memory issues
-        const BATCH_SIZE: usize = 500;
-        for (batch_records, batch_vectors) in records
-            .chunks(BATCH_SIZE)
-            .zip(vectors.chunks(BATCH_SIZE))
-        {
-            store::insert_batch(&db_path, &store_name, batch_records, batch_vectors)?;
-        }
-    }
-
-    #[cfg(not(feature = "embeddings"))]
-    {
-        let records: Vec<store::Record> = all_chunks
-            .iter()
-            .map(|c| store::Record {
-                id: uuid::Uuid::new_v4().to_string(),
-                path: c.path.clone(),
-                content: c.text.clone(),
-                start_line: c.start_line,
-                end_line: c.end_line,
-                chunk_index: c.chunk_index,
-                is_anchor: c.is_anchor,
-            })
-            .collect();
-
-        let vectors: Vec<Vec<f32>> = records.iter().map(|_| vec![0.0f32; 768]).collect();
-        store::insert_batch(&db_path, &store_name, &records, &vectors)?;
+        store::insert_batch(&db_path, &store_name, batch_records, batch_vectors)?;
     }
 
     let count = store::count(&db_path, &store_name)?;

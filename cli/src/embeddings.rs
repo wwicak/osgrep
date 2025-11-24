@@ -7,7 +7,7 @@
 //! Configuration via ~/.osgrep/config.json or environment variables:
 //! - provider: "local" (default) or "openrouter"
 //! - api_key: API key for remote provider
-//! - model: Model name (default: google/gemini-embedding-001)
+//! - model: Model name (default: openai/text-embedding-3-small)
 //! - base_url: Base URL (default: https://openrouter.ai/api/v1)
 
 use crate::config;
@@ -50,8 +50,8 @@ fn get_remote_config() -> Option<&'static RemoteConfig> {
                     .embedding
                     .model
                     .clone()
-                    .unwrap_or_else(|| "google/gemini-embedding-001".to_string()),
-                dimensions: cfg.embedding.dimensions.unwrap_or(768),
+                    .unwrap_or_else(|| "openai/text-embedding-3-small".to_string()),
+                dimensions: cfg.embedding.dimensions.unwrap_or(1536),
             })
         })
         .as_ref()
@@ -95,41 +95,123 @@ fn remote_embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     }
 
     // OpenAI-compatible embedding request
+    // Note: Some models only accept a single string, others accept an array
+    // We try array first, fall back to single string if needed
+    let input_value: serde_json::Value = if texts.len() == 1 {
+        serde_json::json!(texts[0])
+    } else {
+        serde_json::json!(texts)
+    };
+
     let request_body = serde_json::json!({
         "model": config.model,
-        "input": texts,
-        "encoding_format": "float"
+        "input": input_value
     });
 
-    let response = ureq::post(&format!("{}/embeddings", config.base_url))
+    let url = format!("{}/embeddings", config.base_url);
+
+    // Use agent with timeout to prevent hanging
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(std::time::Duration::from_secs(60))
+        .timeout_write(std::time::Duration::from_secs(30))
+        .build();
+
+    let response = agent
+        .post(&url)
         .set("Authorization", &format!("Bearer {}", config.api_key))
         .set("Content-Type", "application/json")
-        .set("HTTP-Referer", "https://github.com/osgrep/osgrep")
+        .set("HTTP-Referer", "https://github.com/wwicak/osgrep")
         .set("X-Title", "osgrep")
-        .send_json(&request_body)
-        .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
+        .send_json(&request_body);
+
+    // Handle HTTP errors
+    let response = match response {
+        Ok(r) => r,
+        Err(ureq::Error::Status(code, response)) => {
+            let body = response.into_string().unwrap_or_else(|_| "unknown".to_string());
+            return Err(anyhow::anyhow!(
+                "API error (HTTP {}): {}",
+                code,
+                body.chars().take(1000).collect::<String>()
+            ));
+        }
+        Err(e) => return Err(anyhow::anyhow!("API request failed: {}", e)),
+    };
 
     let response_body: serde_json::Value = response
         .into_json()
         .map_err(|e| anyhow::anyhow!("Failed to parse API response: {}", e))?;
 
-    // Extract embeddings from response
-    let data = response_body["data"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing 'data' array"))?;
-
-    let mut embeddings = Vec::with_capacity(texts.len());
-    for item in data {
-        let embedding = item["embedding"]
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing 'embedding'"))?
-            .iter()
-            .map(|v| v.as_f64().unwrap_or(0.0) as f32)
-            .collect::<Vec<f32>>();
-        embeddings.push(embedding);
+    // Check for error in response body
+    if let Some(error) = response_body.get("error") {
+        let msg = if error.is_string() {
+            error.as_str().unwrap_or("Unknown error").to_string()
+        } else {
+            error["message"]
+                .as_str()
+                .or_else(|| error["msg"].as_str())
+                .unwrap_or("Unknown error")
+                .to_string()
+        };
+        return Err(anyhow::anyhow!("API error: {}", msg));
     }
 
+    // Try to extract embeddings - handle different response formats
+    let embeddings = if let Some(data) = response_body["data"].as_array() {
+        // Standard OpenAI format: { "data": [{"embedding": [...]}] }
+        let mut result = Vec::with_capacity(texts.len());
+        for item in data {
+            let embedding = item["embedding"]
+                .as_array()
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Invalid API response: missing 'embedding' in data item. Response: {}",
+                        truncate_json(&response_body, 500)
+                    )
+                })?
+                .iter()
+                .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+                .collect::<Vec<f32>>();
+            result.push(embedding);
+        }
+        result
+    } else if let Some(embedding) = response_body["embedding"].as_array() {
+        // Some APIs return embedding directly: { "embedding": [...] }
+        vec![embedding
+            .iter()
+            .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+            .collect()]
+    } else if let Some(embeddings) = response_body["embeddings"].as_array() {
+        // Some APIs use "embeddings" (plural): { "embeddings": [[...], [...]] }
+        embeddings
+            .iter()
+            .map(|emb| {
+                emb.as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+                    .collect()
+            })
+            .collect()
+    } else {
+        return Err(anyhow::anyhow!(
+            "Invalid API response format. Expected 'data', 'embedding', or 'embeddings' field.\n\
+             Response: {}",
+            truncate_json(&response_body, 1000)
+        ));
+    };
+
     Ok(embeddings)
+}
+
+/// Truncate JSON for error messages
+fn truncate_json(value: &serde_json::Value, max_len: usize) -> String {
+    let s = serde_json::to_string_pretty(value).unwrap_or_else(|_| "unparseable".to_string());
+    if s.len() > max_len {
+        format!("{}...", &s[..max_len])
+    } else {
+        s
+    }
 }
 
 // ============================================================================
@@ -342,6 +424,17 @@ pub fn init() -> Result<()> {
             "  Using remote embeddings: {} ({})",
             config.model, config.base_url
         );
+
+        // Warn about models that may have compatibility issues
+        if config.model.contains("gemini") {
+            eprintln!(
+                "  Warning: Gemini models may have API compatibility issues."
+            );
+            eprintln!(
+                "  Consider using: osgrep config --model openai/text-embedding-3-small"
+            );
+        }
+
         Ok(())
     } else {
         #[cfg(feature = "embeddings")]
@@ -371,14 +464,30 @@ pub fn embed(text: &str) -> Result<Vec<f32>> {
 
 /// Embed multiple texts (batch processing)
 pub fn embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    if is_remote() {
-        // Use remote API with batching (most APIs support up to 2048 inputs)
-        const BATCH_SIZE: usize = 100; // Conservative batch size for API
-        let mut all_embeddings = Vec::with_capacity(texts.len());
+    embed_batch_with_progress(texts, |_, _| {})
+}
 
-        for chunk in texts.chunks(BATCH_SIZE) {
+/// Embed multiple texts with progress callback
+pub fn embed_batch_with_progress<F>(texts: &[String], mut progress: F) -> Result<Vec<Vec<f32>>>
+where
+    F: FnMut(usize, usize), // (completed, total)
+{
+    if is_remote() {
+        // Use remote API with small batches for better responsiveness
+        const BATCH_SIZE: usize = 10;
+        let mut all_embeddings = Vec::with_capacity(texts.len());
+        let total = texts.len();
+
+        for (batch_idx, chunk) in texts.chunks(BATCH_SIZE).enumerate() {
             let chunk_embeddings = remote_embed_batch(&chunk.to_vec())?;
             all_embeddings.extend(chunk_embeddings);
+            progress(all_embeddings.len().min(total), total);
+
+            // Small delay between batches to avoid rate limiting
+            // Skip delay on last batch
+            if batch_idx > 0 && all_embeddings.len() < total {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
         }
 
         Ok(all_embeddings)

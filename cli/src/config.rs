@@ -125,9 +125,9 @@ pub fn create_sample() -> Result<PathBuf> {
         embedding: EmbeddingConfig {
             provider: Some("openrouter".to_string()),
             api_key: Some("sk-or-v1-YOUR_API_KEY_HERE".to_string()),
-            model: Some("google/gemini-embedding-001".to_string()),
+            model: Some("openai/text-embedding-3-small".to_string()),
             base_url: Some("https://openrouter.ai/api/v1".to_string()),
-            dimensions: Some(768),
+            dimensions: Some(1536),
         },
     };
 
