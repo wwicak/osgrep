@@ -14,33 +14,41 @@ Natural-language search that works like `grep`. Native Rust implementation with 
 
 ## Installation
 
-### macOS (Apple Silicon / Intel)
+### macOS
 
-**Option 1: Pre-built Binary (Recommended)**
+#### Apple Silicon (M1/M2/M3/M4) - Recommended
 ```bash
-# Download latest release
-curl -LO https://github.com/your-org/osgrep/releases/latest/download/osgrep-darwin-arm64.tar.gz
+# Download and install
+curl -LO https://github.com/Ryandonofrio3/osgrep/releases/latest/download/osgrep-darwin-arm64.tar.gz
 tar xzf osgrep-darwin-arm64.tar.gz
-sudo mv osgrep /usr/local/bin/
+sudo mv osgrep osgrep-mcp /usr/local/bin/
 
-# For Intel Macs, use osgrep-darwin-x64.tar.gz
+# Verify installation
+osgrep info
 ```
 
-**Option 2: Build from Source**
+#### Intel Mac
 ```bash
-# Install Rust
+curl -LO https://github.com/Ryandonofrio3/osgrep/releases/latest/download/osgrep-darwin-x64.tar.gz
+tar xzf osgrep-darwin-x64.tar.gz
+sudo mv osgrep osgrep-mcp /usr/local/bin/
+```
+
+#### Build from Source (macOS)
+```bash
+# Install Rust if needed
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
 
 # Clone and build
-git clone https://github.com/your-org/osgrep
+git clone https://github.com/Ryandonofrio3/osgrep
 cd osgrep
-git checkout rust
 
-# Build with Metal GPU acceleration (M1/M2/M3)
+# Apple Silicon: Build with Metal GPU acceleration
 cargo build --release -p osgrep --features embeddings,metal,sqlite,parallel
 
-# Or build without embeddings (uses external embedding service)
-cargo build --release -p osgrep --features sqlite,parallel
+# Intel Mac: Build without Metal
+cargo build --release -p osgrep --features embeddings,sqlite,parallel
 
 # Install
 sudo cp target/release/osgrep /usr/local/bin/
@@ -48,37 +56,61 @@ sudo cp target/release/osgrep /usr/local/bin/
 
 ### Windows
 
-**Option 1: Pre-built Binary (Recommended)**
+#### Pre-built Binary (Recommended)
 ```powershell
-# Download from releases page
-Invoke-WebRequest -Uri "https://github.com/your-org/osgrep/releases/latest/download/osgrep-win32-x64.zip" -OutFile osgrep.zip
-Expand-Archive osgrep.zip -DestinationPath $env:LOCALAPPDATA\osgrep
-$env:PATH += ";$env:LOCALAPPDATA\osgrep"
+# Create install directory
+New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\osgrep"
+
+# Download and extract
+Invoke-WebRequest -Uri "https://github.com/Ryandonofrio3/osgrep/releases/latest/download/osgrep-win32-x64.zip" -OutFile "$env:TEMP\osgrep.zip"
+Expand-Archive -Path "$env:TEMP\osgrep.zip" -DestinationPath "$env:LOCALAPPDATA\osgrep" -Force
+
+# Add to PATH permanently (run as Administrator or add manually)
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\osgrep", "User")
+
+# Restart terminal and verify
+osgrep info
 ```
 
-**Option 2: Build from Source**
+#### Build from Source (Windows)
 ```powershell
-# Install Rust from https://rustup.rs
+# Install Rust from https://rustup.rs (follow installer prompts)
+# Install Visual Studio Build Tools with "Desktop development with C++"
 
 # Clone and build
-git clone https://github.com/your-org/osgrep
+git clone https://github.com/Ryandonofrio3/osgrep
 cd osgrep
-git checkout rust
+cargo build --release -p osgrep --features embeddings,sqlite,parallel
 
-# Build with SQLite and parallel processing
-cargo build --release -p osgrep --features sqlite,parallel
-
-# Copy to PATH
-copy target\release\osgrep.exe $env:LOCALAPPDATA\osgrep\
+# Install
+Copy-Item target\release\osgrep.exe $env:LOCALAPPDATA\osgrep\
 ```
 
 ### Linux
 
 ```bash
-# Download latest release
-curl -LO https://github.com/your-org/osgrep/releases/latest/download/osgrep-linux-x64.tar.gz
+# Download and install
+curl -LO https://github.com/Ryandonofrio3/osgrep/releases/latest/download/osgrep-linux-x64.tar.gz
 tar xzf osgrep-linux-x64.tar.gz
-sudo mv osgrep /usr/local/bin/
+sudo mv osgrep osgrep-mcp /usr/local/bin/
+
+# Verify installation
+osgrep info
+```
+
+#### Build from Source (Linux)
+```bash
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Clone and build
+git clone https://github.com/Ryandonofrio3/osgrep
+cd osgrep
+cargo build --release -p osgrep --features embeddings,sqlite,parallel
+
+# Install
+sudo cp target/release/osgrep /usr/local/bin/
 ```
 
 ## Quick Start
@@ -298,9 +330,17 @@ osgrep respects both `.gitignore` and `.osgrepignore` files when indexing. Creat
 ## Development
 
 ```bash
-pnpm install
-pnpm build        # or pnpm dev
-pnpm format       # biome check
+# Build all packages
+cargo build --release
+
+# Run tests
+cargo test
+
+# Format code
+cargo fmt --all
+
+# Lint
+cargo clippy --all-targets --all-features
 ```
 
 ## Troubleshooting
