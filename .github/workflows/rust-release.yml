@@ -20,23 +20,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS ARM64 (Apple Silicon) with Metal
+          # macOS ARM64 (Apple Silicon)
           - os: macos-14
             target: aarch64-apple-darwin
             name: darwin-arm64
-            features: embeddings,metal,sqlite,parallel
+            features: sqlite,parallel
 
           # macOS x86_64 (Intel)
           - os: macos-13
             target: x86_64-apple-darwin
             name: darwin-x64
-            features: embeddings,sqlite,parallel
+            features: sqlite,parallel
 
           # Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: linux-x64
-            features: embeddings,sqlite,parallel
+            features: sqlite,parallel
 
           # Windows x86_64
           - os: windows-latest
