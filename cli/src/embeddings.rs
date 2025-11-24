@@ -260,14 +260,13 @@ where
     let mut all_embeddings = Vec::with_capacity(texts.len());
     let total = texts.len();
 
-    for (batch_idx, chunk) in texts.chunks(BATCH_SIZE).enumerate() {
+    for chunk in texts.chunks(BATCH_SIZE) {
         let chunk_embeddings = remote_embed_batch(&chunk.to_vec())?;
         all_embeddings.extend(chunk_embeddings);
         progress(all_embeddings.len().min(total), total);
 
-        // Small delay between batches to avoid rate limiting
-        // Skip delay on last batch
-        if batch_idx > 0 && all_embeddings.len() < total {
+        // Add delay between batches to avoid rate limiting (not after last batch)
+        if all_embeddings.len() < total {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
