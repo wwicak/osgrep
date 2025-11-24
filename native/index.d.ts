@@ -152,3 +152,144 @@ export function searchSimilar(
   candidates: string[],
   topK?: number,
 ): number[];
+
+// ============================================================================
+// SQLite-Vec Vector Store (requires --features sqlite)
+// Replaces LanceDB with lightweight SQLite-based vector storage
+// ============================================================================
+
+/**
+ * Vector record stored in SQLite
+ */
+export interface VecRecord {
+  id: string;
+  path: string;
+  hash: string;
+  content: string;
+  startLine: number;
+  endLine: number;
+  chunkIndex: number;
+  isAnchor: boolean;
+  contextPrev?: string;
+  contextNext?: string;
+}
+
+/**
+ * Search result with score
+ */
+export interface VecSearchResult {
+  record: VecRecord;
+  score: number;
+}
+
+/**
+ * Check if SQLite-Vec is available
+ * Returns false if built without --features sqlite
+ */
+export function isSqliteAvailable(): boolean;
+
+/**
+ * Open or create a vector store
+ * @param dbPath - Path to SQLite database file
+ * @param storeId - Unique identifier for the store (table prefix)
+ */
+export function openStore(dbPath: string, storeId: string): boolean;
+
+/**
+ * Close a store connection
+ * @param dbPath - Path to SQLite database file
+ * @param storeId - Store identifier
+ */
+export function closeStore(dbPath: string, storeId: string): boolean;
+
+/**
+ * Insert a single record with its vector
+ * @param dbPath - Path to SQLite database file
+ * @param storeId - Store identifier
+ * @param record - Record to insert
+ * @param vector - 384-dimensional embedding vector
+ * @returns Generated or provided record ID
+ */
+export function insertRecord(
+  dbPath: string,
+  storeId: string,
+  record: VecRecord,
+  vector: number[],
+): string;
+
+/**
+ * Insert multiple records in a batch (more efficient)
+ * @param dbPath - Path to SQLite database file
+ * @param storeId - Store identifier
+ * @param records - Records to insert
+ * @param vectors - Embedding vectors (must match records length)
+ * @returns Generated record IDs
+ */
+export function insertBatch(
+  dbPath: string,
+  storeId: string,
+  records: VecRecord[],
+  vectors: number[][],
+): string[];
+
+/**
+ * Delete all records for a file path
+ * @param dbPath - Path to SQLite database file
+ * @param storeId - Store identifier
+ * @param path - File path to delete records for
+ * @returns Number of deleted records
+ */
+export function deleteByPath(
+  dbPath: string,
+  storeId: string,
+  path: string,
+): number;
+
+/**
+ * Vector similarity search using sqlite-vec
+ * @param dbPath - Path to SQLite database file
+ * @param storeId - Store identifier
+ * @param queryVector - 384-dimensional query embedding
+ * @param limit - Maximum results to return
+ * @param pathPrefix - Optional path prefix filter
+ * @returns Search results sorted by similarity
+ */
+export function vectorSearch(
+  dbPath: string,
+  storeId: string,
+  queryVector: number[],
+  limit: number,
+  pathPrefix?: string,
+): VecSearchResult[];
+
+/**
+ * Full-text search using SQLite FTS5
+ * @param dbPath - Path to SQLite database file
+ * @param storeId - Store identifier
+ * @param query - Text query
+ * @param limit - Maximum results to return
+ * @param pathPrefix - Optional path prefix filter
+ * @returns Search results sorted by BM25 score
+ */
+export function ftsSearch(
+  dbPath: string,
+  storeId: string,
+  query: string,
+  limit: number,
+  pathPrefix?: string,
+): VecSearchResult[];
+
+/**
+ * List unique file paths in the store
+ * @param dbPath - Path to SQLite database file
+ * @param storeId - Store identifier
+ * @returns Array of file paths
+ */
+export function listFiles(dbPath: string, storeId: string): string[];
+
+/**
+ * Get total record count
+ * @param dbPath - Path to SQLite database file
+ * @param storeId - Store identifier
+ */
+export function countRecords(dbPath: string, storeId: string): number;

@@ -170,11 +170,11 @@ jobs:
         working-directory: native
         run: cargo build --release --features parallel
 
-  # Build with embeddings feature (macOS with Metal)
-  build-embeddings:
+  # Build full-featured M2 Mac package (embeddings + metal + sqlite + parallel)
+  build-m2:
     runs-on: macos-14
-    name: Build embeddings (darwin-arm64)
-    continue-on-error: true  # Optional - don't fail CI if embeddings build fails
+    name: Build M2 Mac (full features)
+    continue-on-error: true
 
     steps:
       - name: Checkout
@@ -201,16 +201,59 @@ jobs:
         working-directory: native
         run: pnpm install
 
-      - name: Build native addon with embeddings + metal
+      - name: Build M2 native addon (embeddings + metal + sqlite + parallel)
         working-directory: native
-        run: |
-          cargo build --release --features "embeddings,metal"
+        run: pnpm build:m2
         env:
           CARGO_BUILD_TARGET: aarch64-apple-darwin
 
-      - name: Upload embeddings artifact
+      - name: Upload M2 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: native-darwin-arm64-embeddings
-          path: native/target/aarch64-apple-darwin/release/*.dylib
+          name: native-darwin-arm64-m2
+          path: native/*.node
+          if-no-files-found: warn
+
+  # Build Windows package (sqlite + parallel)
+  build-windows-full:
+    runs-on: windows-latest
+    name: Build Windows (sqlite + parallel)
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: 'native/pnpm-lock.yaml'
+
+      - name: Install dependencies
+        working-directory: native
+        run: pnpm install
+
+      - name: Build Windows native addon (sqlite + parallel)
+        working-directory: native
+        run: pnpm build:windows
+        env:
+          CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-win32-x64-full
+          path: native/*.node
           if-no-files-found: warn

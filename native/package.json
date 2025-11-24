@@ -26,7 +26,10 @@
     "build:parallel": "napi build --platform --release --features parallel",
     "build:embeddings": "napi build --platform --release --features embeddings",
     "build:metal": "napi build --platform --release --features embeddings,metal",
-    "build:full": "napi build --platform --release --features parallel,embeddings,metal",
+    "build:sqlite": "napi build --platform --release --features sqlite",
+    "build:full": "napi build --platform --release --features full",
+    "build:m2": "napi build --platform --release --features embeddings,metal,sqlite,parallel",
+    "build:windows": "napi build --platform --release --features sqlite,parallel",
     "prepublishOnly": "napi prepublish -t npm"
   },
   "devDependencies": {

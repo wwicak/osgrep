@@ -10,6 +10,7 @@
 //! - --features parallel: Parallel processing with Rayon
 //! - --features embeddings: Native sentence embeddings with Candle
 //! - --features metal: Metal GPU acceleration for Apple Silicon
+//! - --features sqlite: SQLite-Vec vector storage (replaces LanceDB)
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -25,6 +26,13 @@ mod embeddings;
 
 #[cfg(feature = "embeddings")]
 pub use embeddings::*;
+
+// SQLite-Vec vector store module (optional)
+#[cfg(feature = "sqlite")]
+mod vector_store;
+
+#[cfg(feature = "sqlite")]
+pub use vector_store::*;
 
 // ============================================================================
 // SIMD Level Detection
