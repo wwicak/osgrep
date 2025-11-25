@@ -2,7 +2,7 @@
 //!
 //! A native Rust CLI for semantic code search with:
 //! - SIMD-optimized vector operations (AVX-512/AVX2/NEON)
-//! - Native embeddings via Candle (optional Metal acceleration)
+//! - Remote embeddings via OpenAI-compatible APIs
 //! - SQLite-Vec vector storage
 //! - Tree-sitter code chunking
 //! - File watching for live index updates
@@ -86,7 +86,7 @@ enum Commands {
 
     /// Configure osgrep settings
     Config {
-        /// Set embedding provider (openrouter, openai, local)
+        /// Set embedding provider (openrouter, openai, remote)
         #[arg(long)]
         provider: Option<String>,
 
@@ -459,12 +459,6 @@ fn cmd_info() -> Result<()> {
 
     // Embeddings provider
     println!("Embeddings: {}", embeddings::get_provider_info());
-    if !embeddings::is_remote() {
-        #[cfg(feature = "metal")]
-        println!("  Metal: enabled");
-        #[cfg(not(feature = "metal"))]
-        println!("  Metal: disabled");
-    }
 
     // Storage
     #[cfg(feature = "sqlite")]
@@ -535,13 +529,13 @@ fn cmd_config(
         }
         println!();
         println!("Embedding settings:");
-        println!("  provider: {}", cfg.embedding.provider.as_deref().unwrap_or("local"));
+        println!("  provider: {}", cfg.embedding.provider.as_deref().unwrap_or("(not set)"));
         println!("  api_key:  {}",
             cfg.embedding.api_key.as_ref()
                 .map(|k| if k.len() > 10 { format!("{}...", &k[..10]) } else { k.clone() })
                 .unwrap_or_else(|| "(not set)".to_string())
         );
-        println!("  model:    {}", cfg.embedding.model.as_deref().unwrap_or("google/gemini-embedding-001"));
+        println!("  model:    {}", cfg.embedding.model.as_deref().unwrap_or("openai/text-embedding-3-small"));
         println!("  base_url: {}", cfg.embedding.base_url.as_deref().unwrap_or("https://openrouter.ai/api/v1"));
         println!();
         println!("To configure remote embeddings:");
@@ -659,48 +653,24 @@ fn index_file(
     }
 
     // Generate embeddings and insert
-    #[cfg(feature = "embeddings")]
-    {
-        let texts: Vec<String> = chunks.iter().map(|c| c.text.clone()).collect();
-        let vectors = embeddings::embed_batch(&texts)?;
+    let texts: Vec<String> = chunks.iter().map(|c| c.text.clone()).collect();
+    let vectors = embeddings::embed_batch(&texts)?;
 
-        let records: Vec<store::Record> = chunks
-            .iter()
-            .enumerate()
-            .map(|(i, c)| store::Record {
-                id: uuid::Uuid::new_v4().to_string(),
-                path: rel_path_str.clone(),
-                content: c.text.clone(),
-                start_line: c.start_line as i32,
-                end_line: c.end_line as i32,
-                chunk_index: i as i32,
-                is_anchor: c.is_anchor,
-            })
-            .collect();
+    let records: Vec<store::Record> = chunks
+        .iter()
+        .enumerate()
+        .map(|(i, c)| store::Record {
+            id: uuid::Uuid::new_v4().to_string(),
+            path: rel_path_str.clone(),
+            content: c.text.clone(),
+            start_line: c.start_line as i32,
+            end_line: c.end_line as i32,
+            chunk_index: i as i32,
+            is_anchor: c.is_anchor,
+        })
+        .collect();
 
-        store::insert_batch(db_path, store_name, &records, &vectors)?;
-    }
-
-    #[cfg(not(feature = "embeddings"))]
-    {
-        // Without embeddings, just store the chunks with zero vectors
-        let records: Vec<store::Record> = chunks
-            .iter()
-            .enumerate()
-            .map(|(i, c)| store::Record {
-                id: uuid::Uuid::new_v4().to_string(),
-                path: rel_path_str.clone(),
-                content: c.text.clone(),
-                start_line: c.start_line as i32,
-                end_line: c.end_line as i32,
-                chunk_index: i as i32,
-                is_anchor: c.is_anchor,
-            })
-            .collect();
-
-        let vectors: Vec<Vec<f32>> = records.iter().map(|_| vec![0.0f32; 768]).collect(); // BGE base dimension
-        store::insert_batch(db_path, store_name, &records, &vectors)?;
-    }
+    store::insert_batch(db_path, store_name, &records, &vectors)?;
 
     Ok(())
 }

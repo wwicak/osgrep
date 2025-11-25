@@ -29,15 +29,15 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EmbeddingConfig {
-    /// Provider: "local", "openrouter", "openai", or "remote"
+    /// Provider: "openrouter", "openai", or "remote"
     #[serde(default)]
     pub provider: Option<String>,
 
-    /// API key for remote providers
+    /// API key for remote providers (required)
     #[serde(default)]
     pub api_key: Option<String>,
 
-    /// Model name (default: google/gemini-embedding-001)
+    /// Model name (default: openai/text-embedding-3-small)
     #[serde(default)]
     pub model: Option<String>,
 
@@ -45,7 +45,7 @@ pub struct EmbeddingConfig {
     #[serde(default)]
     pub base_url: Option<String>,
 
-    /// Vector dimensions (default: 768)
+    /// Vector dimensions (default: 1536)
     #[serde(default)]
     pub dimensions: Option<usize>,
 }
