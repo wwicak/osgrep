@@ -194,86 +194,85 @@ Claude will automatically use osgrep's semantic search instead of traditional gr
 
 ### `osgrep search`
 
-The default command. Searches the current directory using semantic meaning.
-
-The CLI prefers the hot server when available (via `.osgrep/server.json`), falling back to standalone search automatically.
+Searches the indexed codebase using semantic meaning.
 
 ```bash
-osgrep "how is the database connection pooled?"
+osgrep search "how is the database connection pooled?"
 ```
 
 **Options:**
 | Flag | Description | Default |
 | --- | --- | --- |
-| `-m <n>` | Max total results to return. | `25` |
-| `--per-file <n>` | Max matches to show per file. | `1` |
-| `-c`, `--content` | Show full chunk content instead of snippets. | `false` |
-| `--scores` | Show relevance scores (0.0-1.0). | `false` |
-| `--compact` | Show file paths only (like `grep -l`). | `false` |
-| `-s`, `--sync` | Force re-index changed files before searching. | `false` |
-| `--json` | Dense output for agents. | `false` |
+| `-k`, `--top-k <n>` | Number of results to return | `10` |
+| `-n`, `--name <store>` | Store name to search | Current directory |
+| `-p`, `--path <prefix>` | Filter by path prefix | None |
+| `--json` | Output JSON format | `false` |
+| `--toon` | Output TOON format (efficient for LLMs) | `false` |
 
 **Examples:**
 
 ```bash
-# General concept search
-osgrep "API rate limiting logic"
+# Basic search
+osgrep search "API rate limiting logic"
 
-# Deep dive (show more matches per file)
-osgrep "error handling" --per-file 5
+# Get more results
+osgrep search "error handling" --top-k 20
 
-# Just give me the files
-osgrep "user validation" --compact
+# Search specific store
+osgrep search "user validation" --name my-project
+
+# Filter by path
+osgrep search "database queries" --path src/db/
+
+# JSON output for tools
+osgrep search "authentication" --json
 ```
 
 ### `osgrep index`
 
-Manually indexes the repository. Useful if you want to pre-warm the cache or if you've made massive changes outside of the editor.
+Indexes a directory for semantic search. Creates embeddings for all code files.
 
-- Respects `.gitignore` and `.osgrepignore` (see [Configuration](#ignoring-files) section).
-- **Smart Indexing:** Only embeds code and config files. Skips binaries, lockfiles, and minified assets.
-- **Adaptive Throttling:** Monitors your RAM and CPU usage. If your system gets hot, indexing slows down automatically.
-
-```bash
-osgrep index              # Index current dir
-osgrep index --dry-run    # See what would be indexed
-```
-
-### `osgrep serve`
-
-Runs a lightweight HTTP server with live file watching so searches stay hot in RAM.
-
-- Keeps LanceDB and the embedding worker resident for <50ms responses.
-- Watches the repo (via chokidar) and incrementally re-indexes on change.
-- Health endpoint: `GET /health`
-- Search endpoint: `POST /search` with `{ query, limit, path, rerank }`
-- Writes lock: `.osgrep/server.json` with `port`/`pid`
-
-Usage:
+- Respects `.gitignore` patterns
+- Uses tree-sitter for smart code chunking
+- Supports parallel processing for faster indexing
 
 ```bash
-osgrep serve             # defaults to port 4444
-OSGREP_PORT=5555 osgrep serve
+osgrep index              # Index current directory
+osgrep index /path/to/repo    # Index specific directory
+osgrep index --name my-project  # Use custom store name
+osgrep index --watch      # Watch for file changes (live updates)
+osgrep index --jobs 4     # Use 4 parallel workers
 ```
-
-Claude Code hooks start/stop this automatically; you rarely need to run it manually.
 
 ### `osgrep list`
 
-Lists all indexed repositories (stores) and their metadata.
+Lists all indexed repositories (stores).
 
 ```bash
 osgrep list
 ```
 
-Shows store names, sizes, and last modified times. Useful for seeing what's indexed and cleaning up old stores.
+### `osgrep info`
 
-### `osgrep doctor`
-
-Checks installation health, model paths, and database integrity.
+Shows system information including SIMD capabilities and embedding configuration.
 
 ```bash
-osgrep doctor
+osgrep info
+```
+
+### `osgrep config`
+
+Manages configuration settings for embedding providers.
+
+```bash
+osgrep config                    # Show current config
+osgrep config --init             # Create sample config file
+osgrep config --path             # Show config file path
+osgrep config --show             # Show current config
+osgrep config --reset            # Delete config file
+osgrep config --provider openai  # Set provider
+osgrep config --api-key sk-...   # Set API key
+osgrep config --model text-embedding-3-small  # Set model
 ```
 
 ## Performance & Architecture
@@ -405,7 +404,8 @@ cargo clippy --all-targets --all-features
 ## Troubleshooting
 
   - **Index feels stale?** Run `osgrep index` to refresh.
-  - **Weird results?** Run `osgrep doctor` to verify models.
+  - **No results?** Check that indexing completed successfully and the store exists (`osgrep list`).
+  - **API errors?** Verify your API key has credits (`osgrep config --show`).
   - **Need a fresh start?** Delete `~/.osgrep/data` and re-index.
 
 ## Attribution
