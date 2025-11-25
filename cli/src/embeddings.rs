@@ -279,9 +279,9 @@ pub fn embed_batch_with_progress<F>(texts: &[String], mut progress: F) -> Result
 where
     F: FnMut(usize, usize), // (completed, total)
 {
-    // Use moderate batches for reliability
-    // OpenRouter supports batching, but smaller batches are more reliable
-    const BATCH_SIZE: usize = 50;
+    // Use small batches for maximum reliability with OpenRouter
+    // OpenRouter sometimes has issues with larger batches
+    const BATCH_SIZE: usize = 10;
     let mut all_embeddings = Vec::with_capacity(texts.len());
     let total = texts.len();
 
@@ -290,10 +290,10 @@ where
         all_embeddings.extend(chunk_embeddings);
         progress(all_embeddings.len().min(total), total);
 
-        // Small delay to avoid hitting rate limits (not after last batch)
-        // OpenRouter has generous rate limits, so 20ms is sufficient
+        // Delay between batches to avoid overwhelming OpenRouter
+        // OpenRouter can be sensitive to burst requests
         if all_embeddings.len() < total {
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }
 
