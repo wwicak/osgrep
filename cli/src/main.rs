@@ -181,7 +181,9 @@ fn cmd_index(path: PathBuf, name: Option<String>, watch: bool, jobs: usize) -> R
     let pb = ProgressBar::new(files.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")?
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+            )?
             .progress_chars("#>-"),
     );
 
@@ -283,7 +285,11 @@ fn cmd_index(path: PathBuf, name: Option<String>, watch: bool, jobs: usize) -> R
     println!("{} Loading embedding model...", style("→").cyan());
     embeddings::init()?;
 
-    println!("{} Generating embeddings for {} chunks...", style("→").cyan(), all_chunks.len());
+    println!(
+        "{} Generating embeddings for {} chunks...",
+        style("→").cyan(),
+        all_chunks.len()
+    );
     let texts: Vec<String> = all_chunks.iter().map(|c| c.text.clone()).collect();
 
     // Create progress bar for embedding generation
@@ -316,9 +322,7 @@ fn cmd_index(path: PathBuf, name: Option<String>, watch: bool, jobs: usize) -> R
 
     // Insert in batches to avoid memory issues
     const BATCH_SIZE: usize = 500;
-    for (batch_records, batch_vectors) in records
-        .chunks(BATCH_SIZE)
-        .zip(vectors.chunks(BATCH_SIZE))
+    for (batch_records, batch_vectors) in records.chunks(BATCH_SIZE).zip(vectors.chunks(BATCH_SIZE))
     {
         store::insert_batch(&db_path, &store_name, batch_records, batch_vectors)?;
     }
@@ -497,7 +501,11 @@ fn cmd_config(
     if reset {
         if config_path.exists() {
             std::fs::remove_file(&config_path)?;
-            println!("{} Deleted config file: {}", style("✓").green(), config_path.display());
+            println!(
+                "{} Deleted config file: {}",
+                style("✓").green(),
+                config_path.display()
+            );
         } else {
             println!("{} No config file to delete", style("!").yellow());
         }
@@ -507,7 +515,11 @@ fn cmd_config(
     // Initialize sample config
     if init {
         let path = config::create_sample()?;
-        println!("{} Created config file at: {}", style("✓").green(), path.display());
+        println!(
+            "{} Created config file at: {}",
+            style("✓").green(),
+            path.display()
+        );
         println!();
         println!("Edit the file to add your API key:");
         println!("  {}", style(path.display()).cyan());
@@ -525,18 +537,43 @@ fn cmd_config(
         if config_path.exists() {
             println!("Status: {}", style("found").green());
         } else {
-            println!("Status: {} (using defaults/env vars)", style("not found").yellow());
+            println!(
+                "Status: {} (using defaults/env vars)",
+                style("not found").yellow()
+            );
         }
         println!();
         println!("Embedding settings:");
-        println!("  provider: {}", cfg.embedding.provider.as_deref().unwrap_or("(not set)"));
-        println!("  api_key:  {}",
-            cfg.embedding.api_key.as_ref()
-                .map(|k| if k.len() > 10 { format!("{}...", &k[..10]) } else { k.clone() })
+        println!(
+            "  provider: {}",
+            cfg.embedding.provider.as_deref().unwrap_or("(not set)")
+        );
+        println!(
+            "  api_key:  {}",
+            cfg.embedding
+                .api_key
+                .as_ref()
+                .map(|k| if k.len() > 10 {
+                    format!("{}...", &k[..10])
+                } else {
+                    k.clone()
+                })
                 .unwrap_or_else(|| "(not set)".to_string())
         );
-        println!("  model:    {}", cfg.embedding.model.as_deref().unwrap_or("openai/text-embedding-3-small"));
-        println!("  base_url: {}", cfg.embedding.base_url.as_deref().unwrap_or("https://openrouter.ai/api/v1"));
+        println!(
+            "  model:    {}",
+            cfg.embedding
+                .model
+                .as_deref()
+                .unwrap_or("openai/text-embedding-3-small")
+        );
+        println!(
+            "  base_url: {}",
+            cfg.embedding
+                .base_url
+                .as_deref()
+                .unwrap_or("https://openrouter.ai/api/v1")
+        );
         println!();
         println!("To configure remote embeddings:");
         println!("  osgrep config --init                    # Create sample config");
@@ -546,7 +583,12 @@ fn cmd_config(
     }
 
     // Update config values
-    config::set_embedding_config(provider.clone(), api_key.clone(), model.clone(), base_url.clone())?;
+    config::set_embedding_config(
+        provider.clone(),
+        api_key.clone(),
+        model.clone(),
+        base_url.clone(),
+    )?;
 
     println!("{} Configuration updated", style("✓").green());
     if provider.is_some() {

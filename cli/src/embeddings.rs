@@ -57,9 +57,7 @@ fn get_remote_config() -> Option<&'static RemoteConfig> {
 
 /// Get embedding dimensions (for remote provider info)
 pub fn get_dimensions() -> usize {
-    get_remote_config()
-        .map(|c| c.dimensions)
-        .unwrap_or(1536) // Default to OpenAI dimensions
+    get_remote_config().map(|c| c.dimensions).unwrap_or(1536) // Default to OpenAI dimensions
 }
 
 /// Get provider info for display
@@ -76,7 +74,8 @@ pub fn get_provider_info() -> String {
 // ============================================================================
 
 fn remote_embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    let config = get_remote_config().ok_or_else(|| anyhow::anyhow!("Remote config not available"))?;
+    let config =
+        get_remote_config().ok_or_else(|| anyhow::anyhow!("Remote config not available"))?;
 
     if texts.is_empty() {
         return Ok(vec![]);
@@ -116,7 +115,9 @@ fn remote_embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
     let response = match response {
         Ok(r) => r,
         Err(ureq::Error::Status(code, response)) => {
-            let body = response.into_string().unwrap_or_else(|_| "unknown".to_string());
+            let body = response
+                .into_string()
+                .unwrap_or_else(|_| "unknown".to_string());
             return Err(anyhow::anyhow!(
                 "API error (HTTP {}): {}",
                 code,
@@ -201,7 +202,6 @@ fn truncate_json(value: &serde_json::Value, max_len: usize) -> String {
         s
     }
 }
-
 
 // ============================================================================
 // Public API
