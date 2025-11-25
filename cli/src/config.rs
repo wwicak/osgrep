@@ -72,32 +72,49 @@ fn get_home_dir() -> Option<PathBuf> {
     }
 }
 
-/// Load config from file, falling back to environment variables
+/// Load config from file, merging with environment variables
+/// File values take precedence over environment variables
 pub fn load() -> &'static Config {
     CONFIG.get_or_init(|| {
         // Try to load from file first
-        if let Ok(config_path) = get_config_path() {
+        let mut config = if let Ok(config_path) = get_config_path() {
             if config_path.exists() {
                 if let Ok(content) = std::fs::read_to_string(&config_path) {
-                    if let Ok(config) = serde_json::from_str::<Config>(&content) {
-                        return config;
+                    if let Ok(file_config) = serde_json::from_str::<Config>(&content) {
+                        file_config
+                    } else {
+                        Config::default()
                     }
+                } else {
+                    Config::default()
                 }
+            } else {
+                Config::default()
             }
+        } else {
+            Config::default()
+        };
+
+        // Merge with environment variables (file values take precedence)
+        if config.embedding.provider.is_none() {
+            config.embedding.provider = std::env::var("OSGREP_EMBEDDING_PROVIDER").ok();
+        }
+        if config.embedding.api_key.is_none() {
+            config.embedding.api_key = std::env::var("OSGREP_EMBEDDING_API_KEY").ok();
+        }
+        if config.embedding.model.is_none() {
+            config.embedding.model = std::env::var("OSGREP_EMBEDDING_MODEL").ok();
+        }
+        if config.embedding.base_url.is_none() {
+            config.embedding.base_url = std::env::var("OSGREP_EMBEDDING_BASE_URL").ok();
+        }
+        if config.embedding.dimensions.is_none() {
+            config.embedding.dimensions = std::env::var("OSGREP_EMBEDDING_DIMENSIONS")
+                .ok()
+                .and_then(|s| s.parse().ok());
         }
 
-        // Fall back to environment variables
-        Config {
-            embedding: EmbeddingConfig {
-                provider: std::env::var("OSGREP_EMBEDDING_PROVIDER").ok(),
-                api_key: std::env::var("OSGREP_EMBEDDING_API_KEY").ok(),
-                model: std::env::var("OSGREP_EMBEDDING_MODEL").ok(),
-                base_url: std::env::var("OSGREP_EMBEDDING_BASE_URL").ok(),
-                dimensions: std::env::var("OSGREP_EMBEDDING_DIMENSIONS")
-                    .ok()
-                    .and_then(|s| s.parse().ok()),
-            },
-        }
+        config
     })
 }
 

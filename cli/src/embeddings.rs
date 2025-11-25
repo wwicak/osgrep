@@ -255,8 +255,9 @@ pub fn embed_batch_with_progress<F>(texts: &[String], mut progress: F) -> Result
 where
     F: FnMut(usize, usize), // (completed, total)
 {
-    // Use remote API with small batches for better responsiveness
-    const BATCH_SIZE: usize = 10;
+    // Use larger batches for better throughput
+    // OpenRouter supports up to 100 items per request for most embedding models
+    const BATCH_SIZE: usize = 100;
     let mut all_embeddings = Vec::with_capacity(texts.len());
     let total = texts.len();
 
@@ -265,9 +266,10 @@ where
         all_embeddings.extend(chunk_embeddings);
         progress(all_embeddings.len().min(total), total);
 
-        // Add delay between batches to avoid rate limiting (not after last batch)
+        // Small delay to avoid hitting rate limits (not after last batch)
+        // OpenRouter has generous rate limits, so 20ms is sufficient
         if all_embeddings.len() < total {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(20));
         }
     }
 
