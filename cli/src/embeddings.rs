@@ -142,7 +142,31 @@ fn remote_embed_batch(texts: &[String]) -> Result<Vec<Vec<f32>>> {
                 .unwrap_or("Unknown error")
                 .to_string()
         };
-        return Err(anyhow::anyhow!("API error: {}", msg));
+
+        // Add helpful context for common errors
+        let detailed_msg = if msg.contains("No successful provider responses") {
+            format!(
+                "{}\n\n\
+                Possible causes:\n\
+                1. API key may not have credits or proper permissions\n\
+                2. Check your OpenRouter dashboard: https://openrouter.ai/activity\n\
+                3. Verify your API key has access to the model: {}\n\
+                4. Try a smaller batch by reducing chunks (current: {} items)\n\n\
+                Full error response:\n{}",
+                msg,
+                config.model,
+                texts.len(),
+                truncate_json(&response_body, 500)
+            )
+        } else {
+            format!(
+                "{}\n\nFull error response:\n{}",
+                msg,
+                truncate_json(&response_body, 500)
+            )
+        };
+
+        return Err(anyhow::anyhow!("API error: {}", detailed_msg));
     }
 
     // Try to extract embeddings - handle different response formats
@@ -255,9 +279,9 @@ pub fn embed_batch_with_progress<F>(texts: &[String], mut progress: F) -> Result
 where
     F: FnMut(usize, usize), // (completed, total)
 {
-    // Use larger batches for better throughput
-    // OpenRouter supports up to 100 items per request for most embedding models
-    const BATCH_SIZE: usize = 100;
+    // Use moderate batches for reliability
+    // OpenRouter supports batching, but smaller batches are more reliable
+    const BATCH_SIZE: usize = 50;
     let mut all_embeddings = Vec::with_capacity(texts.len());
     let total = texts.len();
 
